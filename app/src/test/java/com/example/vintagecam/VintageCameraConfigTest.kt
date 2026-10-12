@@ -46,6 +46,14 @@ class VintageCameraConfigTest {
             assertNotNull(preset.subtitle)
             assertNotNull(preset.isoDisplay)
             assertNotNull(preset.badgeColor)
+            assertTrue(preset.filterIndex >= 0)
         }
+
+        // Verify filterIndex maps correctly to GLSL fragment shader switch cases
+        assertEquals(0, VintageFilmPreset.STANDARD.filterIndex)
+        assertEquals(1, VintageFilmPreset.KODAK_GOLD.filterIndex)
+        assertEquals(2, VintageFilmPreset.FUJI_VELVIA.filterIndex)
+        assertEquals(3, VintageFilmPreset.MONO_1974.filterIndex)
+        assertEquals(4, VintageFilmPreset.SEPIA_AMBER.filterIndex)
     }
 }

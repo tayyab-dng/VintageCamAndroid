@@ -4,8 +4,6 @@ import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 
 /**
  * Supported aspect ratios for vintage framing.
@@ -25,80 +23,50 @@ enum class VintageFlashMode(val title: String, val imageCaptureFlashMode: Int) {
 }
 
 /**
- * Vintage film simulation presets applying authentic analog color science.
+ * Vintage film simulation presets applying authentic analog color science directly
+ * in OpenGL ES 3.0 fragment shaders.
  */
 enum class VintageFilmPreset(
+    val filterIndex: Int,
     val title: String,
     val subtitle: String,
     val isoDisplay: String,
-    val badgeColor: Color,
-    val colorFilter: ColorFilter?
+    val badgeColor: Color
 ) {
     STANDARD(
+        filterIndex = 0,
         title = "STANDARD",
         subtitle = "Natural Glass",
         isoDisplay = "ISO 200",
-        badgeColor = Color(0xFF888888),
-        colorFilter = null
+        badgeColor = Color(0xFF888888)
     ),
     KODAK_GOLD(
+        filterIndex = 1,
         title = "GOLD 400",
         subtitle = "Warm Nostalgia",
         isoDisplay = "ISO 400",
-        badgeColor = Color(0xFFFFB300),
-        colorFilter = ColorFilter.colorMatrix(
-            ColorMatrix(
-                floatArrayOf(
-                    1.12f, 0.05f, 0.00f, 0f, 15f,
-                    0.05f, 1.05f, 0.00f, 0f, 10f,
-                    0.00f, 0.02f, 0.88f, 0f, -5f,
-                    0.00f, 0.00f, 0.00f, 1f, 0f
-                )
-            )
-        )
+        badgeColor = Color(0xFFFFB300)
     ),
     FUJI_VELVIA(
+        filterIndex = 2,
         title = "VELVIA 50",
         subtitle = "Vivid Contrast",
         isoDisplay = "ISO 50",
-        badgeColor = Color(0xFF00C853),
-        colorFilter = ColorFilter.colorMatrix(
-            ColorMatrix(
-                floatArrayOf(
-                    1.18f, -0.05f, 0.00f, 0f, 5f,
-                    -0.02f, 1.20f, 0.02f, 0f, 10f,
-                    0.00f, -0.05f, 1.22f, 0f, 15f,
-                    0.00f, 0.00f, 0.00f, 1f, 0f
-                )
-            )
-        )
+        badgeColor = Color(0xFF00C853)
     ),
     MONO_1974(
+        filterIndex = 3,
         title = "MONO '74",
         subtitle = "Silver Gelatin",
         isoDisplay = "ISO 800",
-        badgeColor = Color(0xFFEEEEEE),
-        colorFilter = ColorFilter.colorMatrix(
-            ColorMatrix().apply {
-                setToSaturation(0f)
-            }
-        )
+        badgeColor = Color(0xFFEEEEEE)
     ),
     SEPIA_AMBER(
+        filterIndex = 4,
         title = "SEPIA '40",
         subtitle = "Antique Patina",
         isoDisplay = "ISO 100",
-        badgeColor = Color(0xFFD78E4C),
-        colorFilter = ColorFilter.colorMatrix(
-            ColorMatrix(
-                floatArrayOf(
-                    0.393f * 1.1f, 0.769f * 1.1f, 0.189f * 1.1f, 0f, 25f,
-                    0.349f * 1.0f, 0.686f * 1.0f, 0.168f * 1.0f, 0f, 15f,
-                    0.272f * 0.9f, 0.534f * 0.9f, 0.131f * 0.9f, 0f, -10f,
-                    0.0f,          0.0f,          0.0f,          1f, 0f
-                )
-            )
-        )
+        badgeColor = Color(0xFFD78E4C)
     )
 }
 

@@ -175,6 +175,7 @@ fun VintageCameraScreen() {
                             lensFacing = state.lensFacing,
                             aspectRatio = state.aspectRatio,
                             flashMode = state.flashMode,
+                            filmPreset = state.filmPreset,
                             controller = controller,
                             onZoomChanged = { current, min, max ->
                                 state = state.copy(
@@ -411,26 +412,8 @@ private fun ViewfinderFrame(
             .border(2.dp, VintageLeatherGrip, RoundedCornerShape(12.dp))
             .background(Color.Black)
     ) {
-        // Core CameraX Viewfinder
+        // Core CameraX Viewfinder with OpenGL ES 3.0 Shader Processing
         content()
-
-        // Film Preset Simulation Tint Overlay
-        state.filmPreset.colorFilter?.let {
-            // Vintage ambient tone
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        when (state.filmPreset) {
-                            VintageFilmPreset.KODAK_GOLD -> Color(0x18FFA726)
-                            VintageFilmPreset.FUJI_VELVIA -> Color(0x1000E676)
-                            VintageFilmPreset.SEPIA_AMBER -> Color(0x288D6E63)
-                            VintageFilmPreset.MONO_1974 -> Color(0x15FFFFFF)
-                            else -> Color.Transparent
-                        }
-                    )
-            )
-        }
 
         // Viewfinder Reticle & Rangefinder Markings Canvas
         Canvas(modifier = Modifier.fillMaxSize()) {

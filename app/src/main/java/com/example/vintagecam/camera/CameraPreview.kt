@@ -10,17 +10,17 @@ import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.vintagecam.camera.gl.VintageGLSurfaceView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -111,9 +112,8 @@ fun rememberVintageCameraController(): VintageCameraController {
 }
 
 /**
- * Lifecycle-aware CameraPreview composable utilizing AndroidView and CameraX PreviewView.
- * Supports dynamic 4:3 and 16:9 aspect ratios, lens switching (rear/front),
- * tap-to-focus with visual target indicator, and pinch-to-zoom.
+ * Lifecycle-aware CameraPreview composable backed by an OpenGL ES 3.0 SurfaceView
+ * (VintageGLSurfaceView) with real-time per-frame GLSL shader processing.
  */
 @Composable
 fun CameraPreview(
@@ -121,6 +121,7 @@ fun CameraPreview(
     lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_4_3,
     flashMode: VintageFlashMode = VintageFlashMode.AUTO,
+    filmPreset: VintageFilmPreset = VintageFilmPreset.KODAK_GOLD,
     controller: VintageCameraController = rememberVintageCameraController(),
     onZoomChanged: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onPhotoCaptured: (File) -> Unit = {},
@@ -139,16 +140,27 @@ fun CameraPreview(
     var minZoom by remember { mutableFloatStateOf(1.0f) }
     var maxZoom by remember { mutableFloatStateOf(8.0f) }
 
-    // Pre-create PreviewView
-    val previewView = remember {
-        PreviewView(context).apply {
+    // Pre-create the VintageGLSurfaceView
+    val glSurfaceView = remember {
+        VintageGLSurfaceView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         }
+    }
+
+    // Manage GLSurfaceView pause/resume with Compose lifecycle
+    DisposableEffect(glSurfaceView) {
+        glSurfaceView.onResume()
+        onDispose {
+            glSurfaceView.onPause()
+        }
+    }
+
+    // Dynamically update the GLSL shader filter index when the film preset changes
+    LaunchedEffect(filmPreset) {
+        glSurfaceView.setFilterIndex(filmPreset.filterIndex)
     }
 
     // Connect controller callbacks
@@ -175,7 +187,7 @@ fun CameraPreview(
         )
     }
 
-    // Rebind camera use-cases whenever lifecycle, lensFacing, aspectRatio, or flashMode change
+    // Rebind CameraX whenever lifecycle, lensFacing, aspectRatio, or flashMode change
     LaunchedEffect(cameraProvider, lifecycleOwner, lensFacing, aspectRatio, flashMode) {
         val provider = cameraProvider ?: return@LaunchedEffect
 
@@ -211,7 +223,8 @@ fun CameraPreview(
                 return@LaunchedEffect
             }
 
-            preview.surfaceProvider = previewView.surfaceProvider
+            // Bind CameraX Preview to our OpenGL ES 3.0 Surface Provider!
+            preview.setSurfaceProvider(glSurfaceView.surfaceProvider)
 
             val camera = provider.bindToLifecycle(
                 lifecycleOwner,
@@ -224,7 +237,7 @@ fun CameraPreview(
             controller.imageCapture = imageCapture
             controller.cameraControl = camera.cameraControl
 
-            // Listen to zoom info
+            // Listen to zoom state
             camera.cameraInfo.zoomState.observe(lifecycleOwner) { zoomState ->
                 zoomState?.let {
                     currentZoom = it.zoomRatio
@@ -244,14 +257,18 @@ fun CameraPreview(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(previewView, activeCamera) {
+            .pointerInput(activeCamera) {
                 detectTapGestures { offset ->
                     val camera = activeCamera ?: return@detectTapGestures
-                    val meteringPointFactory = previewView.meteringPointFactory
-                    val point = meteringPointFactory.createPoint(offset.x, offset.y)
+                    val widthPx = size.width.toFloat()
+                    val heightPx = size.height.toFloat()
+                    if (widthPx <= 0f || heightPx <= 0f) return@detectTapGestures
+
+                    val factory = SurfaceOrientedMeteringPointFactory(widthPx, heightPx)
+                    val point = factory.createPoint(offset.x, offset.y)
                     val action = FocusMeteringAction.Builder(
                         point,
                         FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
@@ -279,9 +296,9 @@ fun CameraPreview(
                 }
             }
     ) {
-        // Native Viewfinder Surface
+        // OpenGL ES 3.0 Surface View
         AndroidView(
-            factory = { previewView },
+            factory = { glSurfaceView },
             modifier = Modifier.fillMaxSize()
         )
 
