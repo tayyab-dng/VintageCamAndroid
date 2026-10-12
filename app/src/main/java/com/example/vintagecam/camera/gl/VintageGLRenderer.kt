@@ -520,15 +520,13 @@ class VintageGLRenderer(
             Matrix.scaleM(customMatrix, 0, -1.0f, 1.0f, 1.0f)
         }
 
-        // 4. Rotate around UV center using calibrated targetAngle to counteract hardware sensor tilt
-        val targetAngle = (cameraRotationDegrees + 180) % 360
-        Matrix.rotateM(customMatrix, 0, targetAngle.toFloat(), 0.0f, 0.0f, 1.0f)
-
-        // 5. Shift back from origin to (0.5, 0.5)
+        // 4. Shift back from origin to (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)
 
-        // 6. Post-transform coordinate space: final = custom * raw
-        Matrix.multiplyMM(finalTexMatrix, 0, customMatrix, 0, rawTexMatrix, 0)
+        // 5. SurfaceTexture.getTransformMatrix already incorporates the hardware buffer transform
+        // aligning the camera stream with the portrait display. Multiply raw * custom to apply
+        // aspect ratio crop and front-camera mirroring onto quad texture coordinates.
+        Matrix.multiplyMM(finalTexMatrix, 0, rawTexMatrix, 0, customMatrix, 0)
     }
 
     private fun createProgram(vertexSrc: String, fragmentSrc: String): Int {

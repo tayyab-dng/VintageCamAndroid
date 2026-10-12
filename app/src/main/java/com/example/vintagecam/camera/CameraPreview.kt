@@ -150,10 +150,9 @@ class VintageCameraController internal constructor() {
                             ?: throw IllegalStateException("Failed to decode ImageProxy buffer to Bitmap")
 
                         // 1. Correct sensor orientation and front-camera mirror
-                        val targetAngle = (rotationDegrees + 180) % 360
                         val matrix = Matrix()
-                        if (targetAngle != 0) {
-                            matrix.postRotate(targetAngle.toFloat())
+                        if (rotationDegrees != 0) {
+                            matrix.postRotate(rotationDegrees.toFloat())
                         }
                         if (isMirroring) {
                             matrix.postScale(-1f, 1f)
@@ -392,12 +391,7 @@ fun CameraPreview(
             }
 
             // Bind CameraX Preview to our OpenGL ES 3.0 Surface Provider!
-            preview.setSurfaceProvider { request ->
-                request.setTransformationInfoListener(ContextCompat.getMainExecutor(context)) { info ->
-                    glSurfaceView.setCameraTransformation(info.rotationDegrees, info.isMirroring)
-                }
-                glSurfaceView.surfaceProvider.onSurfaceRequested(request)
-            }
+            preview.setSurfaceProvider(glSurfaceView.surfaceProvider)
 
             val camera = provider.bindToLifecycle(
                 lifecycleOwner,
