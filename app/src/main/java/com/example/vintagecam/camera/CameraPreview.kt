@@ -150,9 +150,10 @@ class VintageCameraController internal constructor() {
                             ?: throw IllegalStateException("Failed to decode ImageProxy buffer to Bitmap")
 
                         // 1. Correct sensor orientation and front-camera mirror
+                        val targetAngle = (rotationDegrees + 180) % 360
                         val matrix = Matrix()
-                        if (rotationDegrees != 0) {
-                            matrix.postRotate(rotationDegrees.toFloat())
+                        if (targetAngle != 0) {
+                            matrix.postRotate(targetAngle.toFloat())
                         }
                         if (isMirroring) {
                             matrix.postScale(-1f, 1f)

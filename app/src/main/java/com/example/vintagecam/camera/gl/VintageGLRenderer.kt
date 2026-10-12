@@ -520,14 +520,15 @@ class VintageGLRenderer(
             Matrix.scaleM(customMatrix, 0, -1.0f, 1.0f, 1.0f)
         }
 
-        // 4. Rotate around UV center using exact camera sensor rotationDegrees
-        Matrix.rotateM(customMatrix, 0, cameraRotationDegrees.toFloat(), 0.0f, 0.0f, 1.0f)
+        // 4. Rotate around UV center using calibrated targetAngle to counteract hardware sensor tilt
+        val targetAngle = (cameraRotationDegrees + 180) % 360
+        Matrix.rotateM(customMatrix, 0, targetAngle.toFloat(), 0.0f, 0.0f, 1.0f)
 
         // 5. Shift back from origin to (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)
 
-        // final = raw * custom
-        Matrix.multiplyMM(finalTexMatrix, 0, rawTexMatrix, 0, customMatrix, 0)
+        // 6. Post-transform coordinate space: final = custom * raw
+        Matrix.multiplyMM(finalTexMatrix, 0, customMatrix, 0, rawTexMatrix, 0)
     }
 
     private fun createProgram(vertexSrc: String, fragmentSrc: String): Int {
