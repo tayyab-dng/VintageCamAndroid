@@ -1,5 +1,7 @@
 package com.example.vintagecam.camera
 
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -105,5 +107,8 @@ data class CameraUiState(
     val isDateStampEnabled: Boolean = true,
     val isFlashActive: Boolean = false,
     val isShutterAnimating: Boolean = false,
+    val isCapturing: Boolean = false,
+    val lastCapturedUri: Uri? = null,
+    val lastThumbnail: Bitmap? = null,
     val lastCapturedMessage: String? = null
 )

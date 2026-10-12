@@ -1,6 +1,10 @@
 package com.example.vintagecam.camera
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
 import androidx.camera.core.Camera
@@ -9,6 +13,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -44,12 +49,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.vintagecam.camera.gl.OffscreenFilmRenderer
 import com.example.vintagecam.camera.gl.VintageGLSurfaceView
+import com.example.vintagecam.media.MediaSaver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -64,6 +75,157 @@ class VintageCameraController internal constructor() {
     internal var onCaptureStarted: (() -> Unit)? = null
     internal var onCaptureSuccess: ((File) -> Unit)? = null
     internal var onCaptureError: ((Exception) -> Unit)? = null
+
+    /**
+     * Raw CameraX capture utilizing takePicture with OnImageCapturedCallback to obtain an in-memory ImageProxy.
+     */
+    fun capturePhoto(
+        executor: Executor,
+        onImageCaptured: (ImageProxy) -> Unit,
+        onError: (ImageCaptureException) -> Unit
+    ) {
+        val capture = imageCapture ?: run {
+            Log.e(TAG, "ImageCapture not initialized yet")
+            onError(ImageCaptureException(ImageCapture.ERROR_UNKNOWN, "ImageCapture not initialized", null))
+            return
+        }
+
+        onCaptureStarted?.invoke()
+
+        capture.takePicture(
+            executor,
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(image: ImageProxy) {
+                    onImageCaptured(image)
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "capturePhoto failed: ${exception.message}", exception)
+                    onError(exception)
+                }
+            }
+        )
+    }
+
+    /**
+     * Full-resolution Phase 5 pipeline:
+     * 1. Captures full sensor ImageProxy
+     * 2. Renders offscreen via OpenGL ES 3.0 FBO with active film stock shaders
+     * 3. Crops cleanly to active aspect ratio (3:2, 4:3, or 9:16)
+     * 4. Burns incandescent orange 90s quartz datestamp (#FF7A00) if enabled
+     * 5. Saves 100% JPEG to MediaStore (Pictures/VintageCam/) with EXIF
+     * 6. Produces UI preview thumbnail and invokes callback
+     */
+    fun captureStillPhoto(
+        context: Context,
+        coroutineScope: CoroutineScope,
+        aspectRatio: VintageAspectRatio,
+        filmPreset: VintageFilmPreset,
+        isDateStampEnabled: Boolean,
+        dateStampText: String,
+        isMirroring: Boolean,
+        onSuccess: (Uri, Bitmap) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val capture = imageCapture ?: run {
+            Log.e(TAG, "ImageCapture not initialized yet")
+            onError(IllegalStateException("ImageCapture not initialized"))
+            return
+        }
+
+        onCaptureStarted?.invoke()
+
+        capturePhoto(
+            executor = ContextCompat.getMainExecutor(context),
+            onImageCaptured = { imageProxy ->
+                coroutineScope.launch(Dispatchers.Default) {
+                    try {
+                        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+                        val buffer = imageProxy.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        imageProxy.close() // Release buffer to camera immediately
+
+                        val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            ?: throw IllegalStateException("Failed to decode ImageProxy buffer to Bitmap")
+
+                        // 1. Correct sensor orientation and front-camera mirror
+                        val matrix = Matrix()
+                        if (rotationDegrees != 0) {
+                            matrix.postRotate(rotationDegrees.toFloat())
+                        }
+                        if (isMirroring) {
+                            matrix.postScale(-1f, 1f)
+                        }
+
+                        val orientedBitmap = if (!matrix.isIdentity) {
+                            val rotated = Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+                            if (rotated != rawBitmap && !rawBitmap.isRecycled) {
+                                rawBitmap.recycle()
+                            }
+                            rotated
+                        } else {
+                            rawBitmap
+                        }
+
+                        // 2. Offscreen GPU FBO Optical Physics Film Emulation Shader processing
+                        val offscreenRenderer = OffscreenFilmRenderer()
+                        val timeSeed = (System.currentTimeMillis() % 100000) / 1000.0f
+                        val shaderProcessedBitmap = offscreenRenderer.processBitmap(
+                            sourceBitmap = orientedBitmap,
+                            filterIndex = filmPreset.filterIndex,
+                            timeSeed = timeSeed
+                        )
+                        if (shaderProcessedBitmap != orientedBitmap && !orientedBitmap.isRecycled) {
+                            orientedBitmap.recycle()
+                        }
+
+                        // 3. Aspect Ratio Cropping (3:2, 4:3, or 9:16)
+                        val croppedBitmap = MediaSaver.cropToAspectRatio(shaderProcessedBitmap, aspectRatio.floatRatio)
+
+                        // 4. Burn 90s Quartz Datestamp (#FF7A00) if enabled
+                        val stampedBitmap = if (isDateStampEnabled) {
+                            MediaSaver.burnQuartzDateStamp(croppedBitmap, dateStampText)
+                        } else {
+                            croppedBitmap
+                        }
+
+                        // 5. Generate lightweight thumbnail for UI preview
+                        val thumbnail = MediaSaver.createThumbnail(stampedBitmap, 180)
+
+                        // 6. Save full-resolution JPEG (100% quality) to MediaStore Gallery with EXIF
+                        val saveResult = MediaSaver.saveToGallery(
+                            context = context,
+                            bitmap = stampedBitmap,
+                            filmStock = filmPreset.title,
+                            isDateStamped = isDateStampEnabled
+                        )
+
+                        // Safely recycle high-res bitmap
+                        if (!stampedBitmap.isRecycled) {
+                            stampedBitmap.recycle()
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            saveResult.onSuccess { uri ->
+                                onSuccess(uri, thumbnail)
+                            }.onFailure { ex ->
+                                onError(ex as? Exception ?: Exception(ex))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in still photo processing pipeline", e)
+                        withContext(Dispatchers.Main) {
+                            onError(e)
+                        }
+                    }
+                }
+            },
+            onError = { ex ->
+                onError(ex)
+            }
+        )
+    }
 
     fun takePhoto(context: Context, outputDirectory: File) {
         val capture = imageCapture ?: run {
@@ -215,7 +377,7 @@ fun CameraPreview(
             val imageCapture = ImageCapture.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setFlashMode(flashMode.imageCaptureFlashMode)
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .build()
 
             val cameraSelector = CameraSelector.Builder()

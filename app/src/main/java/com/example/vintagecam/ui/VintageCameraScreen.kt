@@ -1,5 +1,6 @@
 package com.example.vintagecam.ui
 
+import android.content.Intent
 import android.os.Environment
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
@@ -11,6 +12,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,8 +68,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -206,6 +211,25 @@ fun VintageCameraScreen() {
                 )
             }
 
+            val openGallery = {
+                val uri = state.lastCapturedUri
+                val intent = if (uri != null) {
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "image/jpeg")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                } else {
+                    Intent(Intent.ACTION_VIEW).apply {
+                        type = "image/*"
+                    }
+                }
+                try {
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "No gallery application found", Toast.LENGTH_SHORT).show()
+                }
+            }
+
             // 4. CENTRAL VIEWFINDER WITH PRECISION LETTERBOX/PILLARBOX MASKING
             Box(
                 modifier = Modifier
@@ -217,6 +241,7 @@ fun VintageCameraScreen() {
                 ViewfinderFrame(
                     state = state,
                     quartzDateString = quartzDateString,
+                    onThumbnailClick = openGallery,
                     content = {
                         CameraPreview(
                             modifier = Modifier.fillMaxSize(),
@@ -252,11 +277,6 @@ fun VintageCameraScreen() {
                                 state = state.copy(
                                     frameCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
                                 )
-                                Toast.makeText(
-                                    context,
-                                    "FRAME #${state.frameCounter} EXPOSED & SAVED",
-                                    Toast.LENGTH_SHORT
-                                ).show()
                             }
                         )
                     }
@@ -285,7 +305,9 @@ fun VintageCameraScreen() {
             BottomControlsDeck(
                 state = state,
                 onShutterClick = {
+                    if (state.isCapturing) return@BottomControlsDeck
                     hapticManager.shutterRelease()
+                    state = state.copy(isCapturing = true)
                     coroutineScope.launch {
                         if (state.flashMode != VintageFlashMode.OFF) {
                             flashAlpha.snapTo(0.85f)
@@ -294,9 +316,37 @@ fun VintageCameraScreen() {
                         shutterAlpha.snapTo(1f)
                         shutterAlpha.animateTo(0f, tween(100, easing = LinearEasing))
 
-                        val outputDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-                            ?: context.filesDir
-                        controller.takePhoto(context, outputDir)
+                        controller.captureStillPhoto(
+                            context = context,
+                            coroutineScope = coroutineScope,
+                            aspectRatio = state.aspectRatio,
+                            filmPreset = state.filmPreset,
+                            isDateStampEnabled = state.isDateStampEnabled,
+                            dateStampText = quartzDateString,
+                            isMirroring = (state.lensFacing == CameraSelector.LENS_FACING_FRONT),
+                            onSuccess = { uri, thumbnail ->
+                                val nextCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
+                                state = state.copy(
+                                    frameCounter = nextCounter,
+                                    lastCapturedUri = uri,
+                                    lastThumbnail = thumbnail,
+                                    isCapturing = false
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "FRAME #${nextCounter} EXPOSED & SAVED TO GALLERY",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onError = { ex ->
+                                state = state.copy(isCapturing = false)
+                                Toast.makeText(
+                                    context,
+                                    "CAPTURE FAILED: ${ex.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
                     }
                 },
                 onSwitchCamera = {
@@ -311,6 +361,10 @@ fun VintageCameraScreen() {
                 onFilmBadgeClick = {
                     hapticManager.dialClick()
                     showFilmTray = !showFilmTray
+                },
+                onGalleryClick = {
+                    hapticManager.dialClick()
+                    openGallery()
                 }
             )
         }
@@ -488,6 +542,7 @@ private fun TopControlsDeck(
 private fun ViewfinderFrame(
     state: CameraUiState,
     quartzDateString: String,
+    onThumbnailClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
     // Outer Container providing matte camera body letterboxing / pillarboxing
@@ -670,6 +725,29 @@ private fun ViewfinderFrame(
                             spotColor = Color(0xFFFF7A00),
                             ambientColor = Color(0xFFFF7A00)
                         )
+                    )
+                }
+            }
+
+            // Recent Photo Thumbnail Preview (Bottom-Left corner of viewfinder)
+            state.lastThumbnail?.let { thumbnail ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 14.dp, bottom = 12.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(VintageBlack)
+                        .border(1.5.dp, VintageGold, RoundedCornerShape(6.dp))
+                        .clickable { onThumbnailClick() }
+                        .padding(2.dp)
+                ) {
+                    Image(
+                        bitmap = thumbnail.asImageBitmap(),
+                        contentDescription = "Recent Capture Thumbnail",
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        contentScale = ContentScale.Crop
                     )
                 }
             }
@@ -887,7 +965,8 @@ private fun BottomControlsDeck(
     state: CameraUiState,
     onShutterClick: () -> Unit,
     onSwitchCamera: () -> Unit,
-    onFilmBadgeClick: () -> Unit
+    onFilmBadgeClick: () -> Unit,
+    onGalleryClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -929,21 +1008,37 @@ private fun BottomControlsDeck(
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Film Emulsion Dial Button
-            IconButton(
-                onClick = onFilmBadgeClick,
+            // Left: Recent Photo Thumbnail / Gallery Button
+            Box(
                 modifier = Modifier
                     .size(54.dp)
                     .clip(CircleShape)
                     .background(VintageLeatherGrip)
-                    .border(1.5.dp, VintageMetalSilver, CircleShape)
+                    .border(
+                        1.5.dp,
+                        if (state.lastThumbnail != null) VintageGold else VintageMetalSilver,
+                        CircleShape
+                    )
+                    .clickable { onGalleryClick() },
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = "Film Emulsion Settings",
-                    tint = VintageAmber,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (state.lastThumbnail != null) {
+                    Image(
+                        bitmap = state.lastThumbnail.asImageBitmap(),
+                        contentDescription = "Open Gallery",
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PhotoLibrary,
+                        contentDescription = "Gallery",
+                        tint = VintageAmber,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
             // Center: Tactile Mechanical Analog Shutter Button

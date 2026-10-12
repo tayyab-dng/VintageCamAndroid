@@ -27,6 +27,9 @@ class VintageCameraConfigTest {
         assertEquals(0.0f, state.evValue, 0.001f)
         assertEquals(0, state.evIndex)
         assertTrue(state.isDateStampEnabled)
+        org.junit.Assert.assertFalse(state.isCapturing)
+        org.junit.Assert.assertNull(state.lastCapturedUri)
+        org.junit.Assert.assertNull(state.lastThumbnail)
     }
 
     @Test
