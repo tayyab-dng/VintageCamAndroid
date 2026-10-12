@@ -457,17 +457,25 @@ class VintageGLRenderer(
         }
     }
 
+    fun setCameraTransformation(rotationDegrees: Int, isMirroring: Boolean) {
+        cameraRotationDegrees = rotationDegrees
+        cameraIsMirroring = isMirroring
+        Log.d(TAG, "setCameraTransformation: rot=$rotationDegrees, mirror=$isMirroring")
+        surfaceView.requestRender()
+    }
+
     private fun provideSurfaceToRequest(request: SurfaceRequest, st: SurfaceTexture) {
         cameraWidth = request.resolution.width
         cameraHeight = request.resolution.height
         st.setDefaultBufferSize(cameraWidth, cameraHeight)
         Log.d(TAG, "CameraX Surface provided: ${cameraWidth}x${cameraHeight}")
 
-        request.setTransformationInfoListener(ContextCompat.getMainExecutor(surfaceView.context)) { info ->
-            cameraRotationDegrees = info.rotationDegrees
-            cameraIsMirroring = info.isMirroring
-            Log.d(TAG, "TransformationInfo updated: rot=${cameraRotationDegrees}, mirror=${cameraIsMirroring}")
-            surfaceView.requestRender()
+        try {
+            request.setTransformationInfoListener(ContextCompat.getMainExecutor(surfaceView.context)) { info ->
+                setCameraTransformation(info.rotationDegrees, info.isMirroring)
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "TransformationInfoListener already handled by caller: ${e.message}")
         }
 
         val surface = Surface(st)
@@ -485,19 +493,10 @@ class VintageGLRenderer(
     private fun computeFinalTransformMatrix() {
         Matrix.setIdentityM(customMatrix, 0)
 
-        // 1. Center coordinates around (0.5, 0.5)
+        // 1. Shift to center (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, 0.5f, 0.5f, 0.0f)
 
-        // 2. Rotate to compensate for camera sensor angle
-        val counterRotation = (360 - cameraRotationDegrees) % 360
-        Matrix.rotateM(customMatrix, 0, counterRotation.toFloat(), 0.0f, 0.0f, 1.0f)
-
-        // 3. Mirroring for front camera
-        if (cameraIsMirroring) {
-            Matrix.scaleM(customMatrix, 0, -1.0f, 1.0f, 1.0f)
-        }
-
-        // 4. Aspect Ratio Scaling (FILL_CENTER to avoid stretching)
+        // 2. Aspect Ratio Scaling (FILL_CENTER to avoid stretching) in DISPLAY coordinate space
         val isRotated = cameraRotationDegrees == 90 || cameraRotationDegrees == 270
         val effectiveCamWidth = if (isRotated) cameraHeight else cameraWidth
         val effectiveCamHeight = if (isRotated) cameraWidth else cameraHeight
@@ -515,6 +514,14 @@ class VintageGLRenderer(
         }
 
         Matrix.scaleM(customMatrix, 0, scaleX, scaleY, 1.0f)
+
+        // 3. Mirroring for front camera
+        if (cameraIsMirroring) {
+            Matrix.scaleM(customMatrix, 0, -1.0f, 1.0f, 1.0f)
+        }
+
+        // 4. Rotate around UV center using exact camera sensor rotationDegrees
+        Matrix.rotateM(customMatrix, 0, cameraRotationDegrees.toFloat(), 0.0f, 0.0f, 1.0f)
 
         // 5. Shift back from origin to (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)

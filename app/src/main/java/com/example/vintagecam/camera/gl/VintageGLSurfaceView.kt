@@ -41,4 +41,11 @@ class VintageGLSurfaceView @JvmOverloads constructor(
     fun setFilterIndex(index: Int) {
         renderer.setFilterIndex(index)
     }
+
+    /**
+     * Updates the camera sensor rotation degrees and mirroring state for accurate viewport orientation.
+     */
+    fun setCameraTransformation(rotationDegrees: Int, isMirroring: Boolean) {
+        renderer.setCameraTransformation(rotationDegrees, isMirroring)
+    }
 }

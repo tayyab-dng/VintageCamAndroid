@@ -391,7 +391,12 @@ fun CameraPreview(
             }
 
             // Bind CameraX Preview to our OpenGL ES 3.0 Surface Provider!
-            preview.setSurfaceProvider(glSurfaceView.surfaceProvider)
+            preview.setSurfaceProvider { request ->
+                request.setTransformationInfoListener(ContextCompat.getMainExecutor(context)) { info ->
+                    glSurfaceView.setCameraTransformation(info.rotationDegrees, info.isMirroring)
+                }
+                glSurfaceView.surfaceProvider.onSurfaceRequested(request)
+            }
 
             val camera = provider.bindToLifecycle(
                 lifecycleOwner,

@@ -188,6 +188,7 @@ object MediaSaver {
                     val exifDate = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
                     exif.setAttribute(ExifInterface.TAG_DATETIME, exifDate)
                     exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, exifDate)
+                    exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
                     exif.setAttribute(ExifInterface.TAG_SOFTWARE, "VintageCam Optical Physics Engine")
                     exif.setAttribute(ExifInterface.TAG_USER_COMMENT, "Film: $filmStock, QuartzDate: $isDateStamped")
                     exif.saveAttributes()
