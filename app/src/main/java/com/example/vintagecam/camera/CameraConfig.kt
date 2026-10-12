@@ -7,10 +7,14 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Supported aspect ratios for vintage framing.
+ * 3:2 is the iconic 35mm film negative standard (24x36mm).
+ * 4:3 is the classic medium format and point-and-shoot standard.
+ * 9:16 is modern vertical mobile framing.
  */
 enum class VintageAspectRatio(val title: String, val cameraRatio: Int, val floatRatio: Float) {
+    RATIO_3_2("3:2", AspectRatio.RATIO_4_3, 2f / 3f),
     RATIO_4_3("4:3", AspectRatio.RATIO_4_3, 3f / 4f),
-    RATIO_16_9("16:9", AspectRatio.RATIO_16_9, 9f / 16f)
+    RATIO_9_16("9:16", AspectRatio.RATIO_16_9, 9f / 16f)
 }
 
 /**
@@ -78,11 +82,11 @@ enum class VintageFilmPreset(
 }
 
 /**
- * Mutable state holding the viewfinder and camera controls.
+ * Mutable state holding the viewfinder, optical HUD, and camera controls.
  */
 data class CameraUiState(
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
-    val aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_4_3,
+    val aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_3_2,
     val flashMode: VintageFlashMode = VintageFlashMode.AUTO,
     val filmPreset: VintageFilmPreset = VintageFilmPreset.PORTRA_400,
     val isGridVisible: Boolean = true,
@@ -91,6 +95,14 @@ data class CameraUiState(
     val zoomRatio: Float = 1.0f,
     val minZoom: Float = 1.0f,
     val maxZoom: Float = 8.0f,
+    val evValue: Float = 0.0f,
+    val evIndex: Int = 0,
+    val minEvIndex: Int = -6,
+    val maxEvIndex: Int = 6,
+    val evStep: Float = 0.3333f,
+    val isEvSupported: Boolean = true,
+    val showEvDial: Boolean = false,
+    val isDateStampEnabled: Boolean = true,
     val isFlashActive: Boolean = false,
     val isShutterAnimating: Boolean = false,
     val lastCapturedMessage: String? = null

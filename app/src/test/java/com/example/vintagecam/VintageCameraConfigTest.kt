@@ -18,18 +18,25 @@ class VintageCameraConfigTest {
     fun defaultCameraUiState_hasSensibleDefaults() {
         val state = CameraUiState()
         assertEquals(CameraSelector.LENS_FACING_BACK, state.lensFacing)
-        assertEquals(VintageAspectRatio.RATIO_4_3, state.aspectRatio)
+        assertEquals(VintageAspectRatio.RATIO_3_2, state.aspectRatio)
         assertEquals(VintageFlashMode.AUTO, state.flashMode)
         assertEquals(VintageFilmPreset.PORTRA_400, state.filmPreset)
         assertTrue(state.isGridVisible)
         assertEquals(1, state.frameCounter)
         assertEquals(36, state.maxFrames)
+        assertEquals(0.0f, state.evValue, 0.001f)
+        assertEquals(0, state.evIndex)
+        assertTrue(state.isDateStampEnabled)
     }
 
     @Test
     fun vintageAspectRatios_mapCorrectlyToCameraX() {
+        assertEquals(AspectRatio.RATIO_4_3, VintageAspectRatio.RATIO_3_2.cameraRatio)
         assertEquals(AspectRatio.RATIO_4_3, VintageAspectRatio.RATIO_4_3.cameraRatio)
-        assertEquals(AspectRatio.RATIO_16_9, VintageAspectRatio.RATIO_16_9.cameraRatio)
+        assertEquals(AspectRatio.RATIO_16_9, VintageAspectRatio.RATIO_9_16.cameraRatio)
+        assertEquals(2f / 3f, VintageAspectRatio.RATIO_3_2.floatRatio, 0.001f)
+        assertEquals(3f / 4f, VintageAspectRatio.RATIO_4_3.floatRatio, 0.001f)
+        assertEquals(9f / 16f, VintageAspectRatio.RATIO_9_16.floatRatio, 0.001f)
     }
 
     @Test

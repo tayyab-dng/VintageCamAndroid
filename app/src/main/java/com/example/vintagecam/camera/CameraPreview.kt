@@ -56,7 +56,7 @@ import kotlin.math.roundToInt
 private const val TAG = "VintageCameraPreview"
 
 /**
- * Controller to trigger camera actions from parent composables.
+ * Controller to trigger camera actions and manual exposure from parent composables.
  */
 class VintageCameraController internal constructor() {
     internal var imageCapture: ImageCapture? = null
@@ -104,6 +104,10 @@ class VintageCameraController internal constructor() {
     fun setZoomRatio(ratio: Float) {
         cameraControl?.setZoomRatio(ratio)
     }
+
+    fun setExposureCompensation(index: Int) {
+        cameraControl?.setExposureCompensationIndex(index)
+    }
 }
 
 @Composable
@@ -113,17 +117,18 @@ fun rememberVintageCameraController(): VintageCameraController {
 
 /**
  * Lifecycle-aware CameraPreview composable backed by an OpenGL ES 3.0 SurfaceView
- * (VintageGLSurfaceView) with real-time per-frame GLSL shader processing.
+ * (VintageGLSurfaceView) with real-time per-frame GLSL shader processing and manual EV control.
  */
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
     lensFacing: Int = CameraSelector.LENS_FACING_BACK,
-    aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_4_3,
+    aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_3_2,
     flashMode: VintageFlashMode = VintageFlashMode.AUTO,
     filmPreset: VintageFilmPreset = VintageFilmPreset.PORTRA_400,
     controller: VintageCameraController = rememberVintageCameraController(),
     onZoomChanged: (Float, Float, Float) -> Unit = { _, _, _ -> },
+    onExposureStateChanged: (isSupported: Boolean, minIndex: Int, maxIndex: Int, step: Float, currentIndex: Int) -> Unit = { _, _, _, _, _ -> },
     onPhotoCaptured: (File) -> Unit = {},
     onCaptureStarted: () -> Unit = {}
 ) {
@@ -246,6 +251,22 @@ fun CameraPreview(
                     onZoomChanged(it.zoomRatio, it.minZoomRatio, it.maxZoomRatio)
                 }
             }
+
+            // Read Exposure compensation capabilities
+            val exposureState = camera.cameraInfo.exposureState
+            val isSupported = exposureState.isExposureCompensationSupported
+            val range = exposureState.exposureCompensationRange
+            val step = if (exposureState.exposureCompensationStep.denominator != 0) {
+                exposureState.exposureCompensationStep.numerator.toFloat() / exposureState.exposureCompensationStep.denominator.toFloat()
+            } else 0.3333f
+
+            onExposureStateChanged(
+                isSupported,
+                range.lower,
+                range.upper,
+                step,
+                exposureState.exposureCompensationIndex
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Camera binding failure", e)
         }
@@ -313,33 +334,28 @@ fun CameraPreview(
                 }
             ) {
                 Canvas(modifier = Modifier.size(64.dp)) {
-                    // Vintage square focus bracket with crosshairs
                     drawRect(
                         color = Color(0xFFFFB03B),
                         style = Stroke(width = 2.dp.toPx())
                     )
-                    // Top crosshair
                     drawLine(
                         color = Color(0xFFFFB03B),
                         start = Offset(size.width / 2f, 0f),
                         end = Offset(size.width / 2f, 6.dp.toPx()),
                         strokeWidth = 2.dp.toPx()
                     )
-                    // Bottom crosshair
                     drawLine(
                         color = Color(0xFFFFB03B),
                         start = Offset(size.width / 2f, size.height),
                         end = Offset(size.width / 2f, size.height - 6.dp.toPx()),
                         strokeWidth = 2.dp.toPx()
                     )
-                    // Left crosshair
                     drawLine(
                         color = Color(0xFFFFB03B),
                         start = Offset(0f, size.height / 2f),
                         end = Offset(6.dp.toPx(), size.height / 2f),
                         strokeWidth = 2.dp.toPx()
                     )
-                    // Right crosshair
                     drawLine(
                         color = Color(0xFFFFB03B),
                         start = Offset(size.width, size.height / 2f),
