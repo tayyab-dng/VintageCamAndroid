@@ -121,7 +121,7 @@ fun CameraPreview(
     lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_4_3,
     flashMode: VintageFlashMode = VintageFlashMode.AUTO,
-    filmPreset: VintageFilmPreset = VintageFilmPreset.KODAK_GOLD,
+    filmPreset: VintageFilmPreset = VintageFilmPreset.PORTRA_400,
     controller: VintageCameraController = rememberVintageCameraController(),
     onZoomChanged: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onPhotoCaptured: (File) -> Unit = {},

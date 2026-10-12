@@ -24,14 +24,15 @@ import javax.microedition.khronos.opengles.GL10
 private const val TAG = "VintageGLRenderer"
 
 /**
- * OpenGL ES 3.0 Renderer for real-time CameraX viewfinder frame processing.
- * Renders an external OES texture through custom GLSL shaders with zero latency.
+ * OpenGL ES 3.0 Optical Physics Shader Engine for real-time CameraX viewfinder frame processing.
+ * Renders an external OES texture through custom GLSL shaders with optical halation bloom,
+ * luminance-responsive silver-halide grain, lens vignetting, and authentic film stock science.
  */
 class VintageGLRenderer(
     private val surfaceView: GLSurfaceView
 ) : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener, Preview.SurfaceProvider {
 
-    // Shader source code
+    // Vertex shader: transforms full-screen quad UVs by camera matrix
     private val vertexShaderSource = """
         #version 300 es
         layout(location = 0) in vec2 a_Position;
@@ -46,6 +47,7 @@ class VintageGLRenderer(
         }
     """.trimIndent()
 
+    // Fragment shader: 35mm optical physics engine
     private val fragmentShaderSource = """
         #version 300 es
         #extension GL_OES_EGL_image_external_essl3 : enable
@@ -61,72 +63,191 @@ class VintageGLRenderer(
         uniform vec2 u_Resolution;
         uniform int u_FilterIndex;
 
-        // Fast hash for procedural analog grain
-        float hash(vec2 p) {
-            p = fract(p * vec2(123.34, 456.21));
-            p += dot(p, p + 45.32);
-            return fract(p.x * p.y);
+        // Rec.709 Photometric Luminance
+        float getLuminance(vec3 col) {
+            return dot(col, vec3(0.2126, 0.7152, 0.0722));
         }
 
-        // Film grain simulation
-        float filmGrain(vec2 uv, float t) {
-            float seed = hash(uv * 1200.0 + fract(t * 18.0));
-            return (seed - 0.5) * 2.0;
+        // Fast hash for organic silver halide crystals
+        float hash21(vec2 p) {
+            vec3 p3 = fract(vec3(p.xyx) * vec3(443.897, 441.423, 437.195));
+            p3 += dot(p3, p3.yzx + 19.19);
+            return fract((p3.x + p3.y) * p3.z);
         }
 
-        // Optical lens vignette
-        float vignette(vec2 uv) {
+        // Emulsion grain response: peaks in shadows and midtones, soft roll-off in highlights
+        float grainLuminanceResponse(float lum) {
+            float shadow = smoothstep(0.01, 0.22, lum);
+            float highlight = 1.0 - smoothstep(0.55, 0.98, lum);
+            return shadow * highlight;
+        }
+
+        // Multi-frequency procedural silver halide grain generator
+        float calculateFilmGrain(vec2 uv, float time, vec2 resolution, float lum, float grainScale, float intensity) {
+            if (intensity <= 0.0) return 0.0;
+            // Quantize to 24 FPS film motion intervals
+            float filmTime = floor(time * 24.0) / 24.0;
+            vec2 coord = uv * resolution * grainScale + vec2(filmTime * 37.17, filmTime * 59.23);
+
+            // Blend two spatial octaves for organic crystal clumping
+            float g1 = hash21(coord);
+            float g2 = hash21(coord * 0.45 + vec2(17.3, 31.8));
+            float rawGrain = (g1 * 0.65 + g2 * 0.35 - 0.5) * 2.0;
+
+            float response = grainLuminanceResponse(lum);
+            return rawGrain * response * intensity;
+        }
+
+        // Multi-tap highlight halation scatter (signature anti-halation backing removal glow)
+        vec3 sampleHalation(samplerExternalOES tex, vec2 uv, vec2 resolution, float threshold, vec3 halationTint, float intensity) {
+            if (intensity <= 0.0) return vec3(0.0);
+
+            vec2 texel = 1.0 / resolution;
+            vec3 bloomSum = vec3(0.0);
+
+            // 8-point radial scatter kernel
+            const vec2 kernel[8] = vec2[](
+                vec2( 0.0,  4.2),
+                vec2( 0.0, -4.2),
+                vec2( 4.2,  0.0),
+                vec2(-4.2,  0.0),
+                vec2( 3.0,  3.0),
+                vec2(-3.0,  3.0),
+                vec2( 3.0, -3.0),
+                vec2(-3.0, -3.0)
+            );
+
+            for (int i = 0; i < 8; i++) {
+                vec2 offsetUv = uv + kernel[i] * texel * 1.6;
+                vec3 col = texture(tex, offsetUv).rgb;
+                float lum = getLuminance(col);
+
+                // Soft threshold extraction
+                float overExposure = max(0.0, lum - threshold) / (1.0 - threshold + 0.001);
+                float boost = pow(overExposure, 1.6);
+                bloomSum += col * boost;
+            }
+
+            bloomSum = (bloomSum / 8.0) * halationTint * intensity;
+            return bloomSum;
+        }
+
+        // Aspect-ratio proportional optical lens vignetting
+        float opticalVignette(vec2 uv, float strength, float falloffStart) {
             vec2 coord = (uv - 0.5) * 2.0;
-            return clamp(1.0 - dot(coord, coord) * 0.40, 0.0, 1.0);
+            float dist = dot(coord, coord);
+            float vig = smoothstep(2.0, falloffStart, dist);
+            return mix(1.0 - strength, 1.0, vig);
         }
 
-        // Kodak Gold 400 emulation
-        vec3 applyKodakGold(vec3 col, vec2 uv, float t) {
-            // Analog warm contrast curve
-            col = clamp((col - 0.5) * 1.15 + 0.5, 0.0, 1.0);
-            col.r = clamp(col.r * 1.14 + 0.04, 0.0, 1.0);
-            col.g = clamp(col.g * 1.06 + 0.02, 0.0, 1.0);
-            col.b = clamp(col.b * 0.88 - 0.02, 0.0, 1.0);
-            col *= vignette(uv);
-            float grain = filmGrain(uv, t) * 0.055;
-            col += grain * (1.0 - col);
+        // Analog film characteristic S-curve (toe lift and shoulder roll-off)
+        vec3 applyFilmCurve(vec3 c, float toeLift, float shoulderRoll) {
+            vec3 lifted = mix(vec3(toeLift), c, smoothstep(0.0, 0.35, c));
+            vec3 scurve = lifted * lifted * (3.0 - 2.0 * lifted);
+            vec3 shoulder = mix(scurve, vec3(1.0 - shoulderRoll + shoulderRoll * scurve), smoothstep(0.65, 1.0, scurve));
+            return clamp(shoulder, 0.0, 1.0);
+        }
+
+        // ==========================================
+        // Curated Film Emulation Profiles
+        // ==========================================
+
+        // Index 0: STANDARD (Natural pass-through)
+        vec3 applyStandard(vec3 raw) {
+            return raw;
+        }
+
+        // Index 1: KODAK PORTRA 400 (Warm golden pastels, gentle shadows, fine grain)
+        vec3 applyPortra400(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+            float lum = getLuminance(raw);
+            vec3 halation = sampleHalation(tex, uv, res, 0.72, vec3(1.0, 0.75, 0.45), 0.35);
+
+            vec3 col = raw;
+            col.r = clamp(col.r * 1.10 + 0.03, 0.0, 1.0);
+            col.g = clamp(col.g * 1.04 + 0.015, 0.0, 1.0);
+            col.b = clamp(col.b * 0.92 - 0.01, 0.0, 1.0);
+
+            col = applyFilmCurve(col, 0.03, 0.04);
+            col += halation * (1.0 - col);
+            col *= opticalVignette(uv, 0.22, 0.6);
+
+            float grain = calculateFilmGrain(uv, t, res, lum, 0.85, 0.048);
+            col += grain * (1.0 - col * 0.5);
+
             return clamp(col, 0.0, 1.0);
         }
 
-        // Fuji Velvia 50 emulation
-        vec3 applyFujiVelvia(vec3 col, vec2 uv, float t) {
-            col = clamp((col - 0.5) * 1.25 + 0.5, 0.0, 1.0);
-            col.r = clamp(col.r * 1.12, 0.0, 1.0);
-            col.g = clamp(col.g * 1.20 + 0.02, 0.0, 1.0);
-            col.b = clamp(col.b * 1.12, 0.0, 1.0);
-            col *= mix(1.0, vignette(uv), 0.65);
-            float grain = filmGrain(uv, t) * 0.035;
+        // Index 2: CINESTILL 800T (Cool cyan/tungsten color cast, contrasty night blacks, intense red-orange halation)
+        vec3 applyCineStill800T(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+            float lum = getLuminance(raw);
+            // Vermillion red-orange halation glow
+            vec3 halationTint = vec3(1.0, 0.20, 0.05);
+            vec3 halation = sampleHalation(tex, uv, res, 0.62, halationTint, 1.45);
+
+            vec3 col = raw;
+            col.r = clamp(col.r * 0.94 - 0.01, 0.0, 1.0);
+            col.g = clamp(col.g * 1.05 + 0.02, 0.0, 1.0);
+            col.b = clamp(col.b * 1.18 + 0.04, 0.0, 1.0);
+
+            col = pow(col, vec3(1.15));
+            col = applyFilmCurve(col, 0.015, 0.08);
+            col += halation * (1.2 - col * 0.3);
+            col *= opticalVignette(uv, 0.32, 0.5);
+
+            float grain = calculateFilmGrain(uv, t, res, lum, 0.70, 0.072);
+            col += grain * (1.0 - col * 0.5);
+
+            return clamp(col, 0.0, 1.0);
+        }
+
+        // Index 3: FUJI VELVIA 50 (Punchy saturated emerald greens, rich skies, deep contrast, micro-grain)
+        vec3 applyFujiVelvia(vec3 raw, vec2 uv, float t, vec2 res) {
+            float lum = getLuminance(raw);
+            vec3 col = raw;
+            col.r = clamp(pow(col.r, 1.12) * 1.08, 0.0, 1.0);
+            col.g = clamp(pow(col.g, 1.02) * 1.22 + 0.01, 0.0, 1.0);
+            col.b = clamp(pow(col.b, 1.05) * 1.15, 0.0, 1.0);
+
+            col = applyFilmCurve(col, 0.01, 0.02);
+            col *= opticalVignette(uv, 0.28, 0.55);
+
+            float grain = calculateFilmGrain(uv, t, res, lum, 1.2, 0.028);
             col += grain;
+
             return clamp(col, 0.0, 1.0);
         }
 
-        // Mono 1974 silver gelatin emulation
-        vec3 applyMono1974(vec3 col, vec2 uv, float t) {
-            float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-            lum = clamp((lum - 0.45) * 1.35 + 0.45, 0.0, 1.0);
-            float grain = filmGrain(uv, t) * 0.085;
-            lum += grain * (0.8 - abs(lum - 0.5));
-            lum *= vignette(uv);
+        // Index 4: ILFORD HP5 400 (Timeless silver gelatin black-and-white, silver-halide organic grain)
+        vec3 applyIlfordHP5(vec3 raw, vec2 uv, float t, vec2 res) {
+            float lum = getLuminance(raw);
+            lum = clamp((lum - 0.44) * 1.38 + 0.44, 0.0, 1.0);
+            lum = lum * lum * (3.0 - 2.0 * lum);
+            lum *= opticalVignette(uv, 0.38, 0.45);
+
+            float grain = calculateFilmGrain(uv, t, res, lum, 0.75, 0.095);
+            lum += grain * (0.85 - abs(lum - 0.45));
+
             return vec3(clamp(lum, 0.0, 1.0));
         }
 
-        // Sepia 1940 antique patina emulation
-        vec3 applySepiaAmber(vec3 col, vec2 uv, float t) {
-            float lum = dot(col, vec3(0.299, 0.587, 0.114));
-            vec3 sepia = vec3(
-                lum * 1.22 + 0.10,
-                lum * 1.02 + 0.05,
-                lum * 0.72
-            );
-            sepia *= clamp(vignette(uv) * 0.92 + 0.08, 0.0, 1.0);
-            float grain = filmGrain(uv, t) * 0.065;
-            sepia += grain;
-            return clamp(sepia, 0.0, 1.0);
+        // Index 5: RETRO 1980s POINT-AND-SHOOT (Milky faded blacks, warm color cast, aggressive corner vignette)
+        vec3 applyPointAndShoot(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+            float lum = getLuminance(raw);
+            vec3 flashBloom = sampleHalation(tex, uv, res, 0.75, vec3(1.0, 0.85, 0.50), 0.45);
+
+            vec3 col = raw;
+            col = mix(vec3(0.08, 0.06, 0.05), col, 0.92);
+            col.r = clamp(col.r * 1.12 + 0.05, 0.0, 1.0);
+            col.g = clamp(col.g * 1.04 + 0.03, 0.0, 1.0);
+            col.b = clamp(col.b * 0.88, 0.0, 1.0);
+
+            col += flashBloom * 0.5;
+            col *= opticalVignette(uv, 0.50, 0.35);
+
+            float grain = calculateFilmGrain(uv, t, res, lum, 0.65, 0.08);
+            col += grain * (1.0 - col * 0.4);
+
+            return clamp(col, 0.0, 1.0);
         }
 
         void main() {
@@ -135,19 +256,22 @@ class VintageGLRenderer(
 
             switch (u_FilterIndex) {
                 case 1:
-                    result = applyKodakGold(raw.rgb, v_TexCoord, u_Time);
+                    result = applyPortra400(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
                     break;
                 case 2:
-                    result = applyFujiVelvia(raw.rgb, v_TexCoord, u_Time);
+                    result = applyCineStill800T(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
                     break;
                 case 3:
-                    result = applyMono1974(raw.rgb, v_TexCoord, u_Time);
+                    result = applyFujiVelvia(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 4:
-                    result = applySepiaAmber(raw.rgb, v_TexCoord, u_Time);
+                    result = applyIlfordHP5(raw.rgb, v_TexCoord, u_Time, u_Resolution);
+                    break;
+                case 5:
+                    result = applyPointAndShoot(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
                     break;
                 default:
-                    result = raw.rgb;
+                    result = applyStandard(raw.rgb);
                     break;
             }
 
@@ -202,7 +326,7 @@ class VintageGLRenderer(
     private var cameraRotationDegrees = 0
     private var cameraIsMirroring = false
 
-    private val filterIndex = AtomicInteger(1) // Default to Kodak Gold (1)
+    private val filterIndex = AtomicInteger(1) // Default to Kodak Portra 400 (1)
     private val startTimeMs = SystemClock.elapsedRealtime()
 
     init {
@@ -219,7 +343,6 @@ class VintageGLRenderer(
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         Log.d(TAG, "onSurfaceCreated on GL thread")
 
-        // Black background for analog viewfinder border
         GLES30.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
 
         // 1. Generate OES external texture
@@ -238,7 +361,7 @@ class VintageGLRenderer(
         st.setOnFrameAvailableListener(this)
         surfaceTexture = st
 
-        // 3. Compile Shaders and build Program
+        // 3. Compile Shaders and link Program
         programId = createProgram(vertexShaderSource, fragmentShaderSource)
         if (programId != 0) {
             uTexMatrixLoc = GLES30.glGetUniformLocation(programId, "u_TexMatrix")
@@ -259,12 +382,9 @@ class VintageGLRenderer(
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vboId)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, quadBuffer.capacity() * 4, quadBuffer, GLES30.GL_STATIC_DRAW)
 
-        // Stride: 4 floats * 4 bytes = 16 bytes
-        // a_Position (x, y)
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 16, 0)
 
-        // a_TexCoord (u, v)
         GLES30.glEnableVertexAttribArray(1)
         GLES30.glVertexAttribPointer(1, 2, GLES30.GL_FLOAT, false, 16, 8)
 
@@ -287,7 +407,6 @@ class VintageGLRenderer(
 
     override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
         isNewFrameAvailable.set(true)
-        // Request frame rendering (RENDERMODE_WHEN_DIRTY)
         surfaceView.requestRender()
     }
 
@@ -303,7 +422,6 @@ class VintageGLRenderer(
             }
         }
 
-        // Calculate combined orientation and aspect-ratio transform matrix
         computeFinalTransformMatrix()
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
@@ -316,7 +434,7 @@ class VintageGLRenderer(
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTextureId)
 
-        // Update Uniforms
+        // Pass Uniforms
         GLES30.glUniformMatrix4fv(uTexMatrixLoc, 1, false, finalTexMatrix, 0)
 
         val elapsedSeconds = (SystemClock.elapsedRealtime() - startTimeMs) / 1000.0f
@@ -330,15 +448,11 @@ class VintageGLRenderer(
         GLES30.glBindVertexArray(0)
     }
 
-    /**
-     * CameraX Preview.SurfaceProvider callback.
-     */
     override fun onSurfaceRequested(request: SurfaceRequest) {
         val st = surfaceTexture
         if (st != null) {
             provideSurfaceToRequest(request, st)
         } else {
-            // Buffer the request until onSurfaceCreated executes on GL thread
             pendingSurfaceRequest = request
         }
     }
@@ -368,16 +482,13 @@ class VintageGLRenderer(
         }
     }
 
-    /**
-     * Computes the orientation compensation and fill-center aspect ratio scaling matrix.
-     */
     private fun computeFinalTransformMatrix() {
         Matrix.setIdentityM(customMatrix, 0)
 
         // 1. Center coordinates around (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, 0.5f, 0.5f, 0.0f)
 
-        // 2. Rotate to compensate for camera sensor angle (portrait is 90° or 270°)
+        // 2. Rotate to compensate for camera sensor angle
         val counterRotation = (360 - cameraRotationDegrees) % 360
         Matrix.rotateM(customMatrix, 0, counterRotation.toFloat(), 0.0f, 0.0f, 1.0f)
 
@@ -398,10 +509,8 @@ class VintageGLRenderer(
         var scaleY = 1.0f
 
         if (viewAspect > camAspect) {
-            // Viewport is wider than camera: crop top/bottom
             scaleY = camAspect / viewAspect
         } else if (viewAspect < camAspect) {
-            // Viewport is taller than camera: crop left/right
             scaleX = viewAspect / camAspect
         }
 
@@ -410,7 +519,7 @@ class VintageGLRenderer(
         // 5. Shift back from origin to (0.5, 0.5)
         Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)
 
-        // Multiply with SurfaceTexture's driver matrix: final = raw * custom
+        // final = raw * custom
         Matrix.multiplyMM(finalTexMatrix, 0, rawTexMatrix, 0, customMatrix, 0)
     }
 

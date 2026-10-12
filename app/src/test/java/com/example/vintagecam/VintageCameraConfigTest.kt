@@ -20,7 +20,7 @@ class VintageCameraConfigTest {
         assertEquals(CameraSelector.LENS_FACING_BACK, state.lensFacing)
         assertEquals(VintageAspectRatio.RATIO_4_3, state.aspectRatio)
         assertEquals(VintageFlashMode.AUTO, state.flashMode)
-        assertEquals(VintageFilmPreset.KODAK_GOLD, state.filmPreset)
+        assertEquals(VintageFilmPreset.PORTRA_400, state.filmPreset)
         assertTrue(state.isGridVisible)
         assertEquals(1, state.frameCounter)
         assertEquals(36, state.maxFrames)
@@ -41,19 +41,22 @@ class VintageCameraConfigTest {
 
     @Test
     fun vintageFilmPresets_haveConfiguredBadgesAndTitles() {
+        assertEquals(6, VintageFilmPreset.values().size)
+
         VintageFilmPreset.values().forEach { preset ->
             assertNotNull(preset.title)
             assertNotNull(preset.subtitle)
             assertNotNull(preset.isoDisplay)
             assertNotNull(preset.badgeColor)
-            assertTrue(preset.filterIndex >= 0)
+            assertTrue(preset.filterIndex in 0..5)
         }
 
         // Verify filterIndex maps correctly to GLSL fragment shader switch cases
         assertEquals(0, VintageFilmPreset.STANDARD.filterIndex)
-        assertEquals(1, VintageFilmPreset.KODAK_GOLD.filterIndex)
-        assertEquals(2, VintageFilmPreset.FUJI_VELVIA.filterIndex)
-        assertEquals(3, VintageFilmPreset.MONO_1974.filterIndex)
-        assertEquals(4, VintageFilmPreset.SEPIA_AMBER.filterIndex)
+        assertEquals(1, VintageFilmPreset.PORTRA_400.filterIndex)
+        assertEquals(2, VintageFilmPreset.CINESTILL_800T.filterIndex)
+        assertEquals(3, VintageFilmPreset.FUJI_VELVIA.filterIndex)
+        assertEquals(4, VintageFilmPreset.ILFORD_HP5.filterIndex)
+        assertEquals(5, VintageFilmPreset.POINT_AND_SHOOT.filterIndex)
     }
 }

@@ -23,8 +23,8 @@ enum class VintageFlashMode(val title: String, val imageCaptureFlashMode: Int) {
 }
 
 /**
- * Vintage film simulation presets applying authentic analog color science directly
- * in OpenGL ES 3.0 fragment shaders.
+ * Professional analog film emulation presets backed by real-time OpenGL ES 3.0
+ * optical physics shaders (luminance-dependent grain, halation bloom, and film tone curves).
  */
 enum class VintageFilmPreset(
     val filterIndex: Int,
@@ -40,33 +40,40 @@ enum class VintageFilmPreset(
         isoDisplay = "ISO 200",
         badgeColor = Color(0xFF888888)
     ),
-    KODAK_GOLD(
+    PORTRA_400(
         filterIndex = 1,
-        title = "GOLD 400",
-        subtitle = "Warm Nostalgia",
+        title = "PORTRA 400",
+        subtitle = "Warm Golden Pastels",
         isoDisplay = "ISO 400",
-        badgeColor = Color(0xFFFFB300)
+        badgeColor = Color(0xFFFFB03B)
+    ),
+    CINESTILL_800T(
+        filterIndex = 2,
+        title = "CINESTILL 800T",
+        subtitle = "Tungsten & Halation",
+        isoDisplay = "ISO 800",
+        badgeColor = Color(0xFF00E5FF)
     ),
     FUJI_VELVIA(
-        filterIndex = 2,
+        filterIndex = 3,
         title = "VELVIA 50",
-        subtitle = "Vivid Contrast",
+        subtitle = "Vivid Emerald Contrast",
         isoDisplay = "ISO 50",
         badgeColor = Color(0xFF00C853)
     ),
-    MONO_1974(
-        filterIndex = 3,
-        title = "MONO '74",
-        subtitle = "Silver Gelatin",
-        isoDisplay = "ISO 800",
-        badgeColor = Color(0xFFEEEEEE)
-    ),
-    SEPIA_AMBER(
+    ILFORD_HP5(
         filterIndex = 4,
-        title = "SEPIA '40",
-        subtitle = "Antique Patina",
-        isoDisplay = "ISO 100",
-        badgeColor = Color(0xFFD78E4C)
+        title = "ILFORD HP5",
+        subtitle = "Silver Gelatin B&W",
+        isoDisplay = "ISO 400",
+        badgeColor = Color(0xFFE0E0E0)
+    ),
+    POINT_AND_SHOOT(
+        filterIndex = 5,
+        title = "RETRO 1980s",
+        subtitle = "Milky Faded Film",
+        isoDisplay = "ISO 800",
+        badgeColor = Color(0xFFFF7043)
     )
 }
 
@@ -77,7 +84,7 @@ data class CameraUiState(
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     val aspectRatio: VintageAspectRatio = VintageAspectRatio.RATIO_4_3,
     val flashMode: VintageFlashMode = VintageFlashMode.AUTO,
-    val filmPreset: VintageFilmPreset = VintageFilmPreset.KODAK_GOLD,
+    val filmPreset: VintageFilmPreset = VintageFilmPreset.PORTRA_400,
     val isGridVisible: Boolean = true,
     val frameCounter: Int = 1,
     val maxFrames: Int = 36,
