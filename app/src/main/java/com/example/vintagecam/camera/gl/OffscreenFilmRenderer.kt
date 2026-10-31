@@ -83,7 +83,7 @@ class OffscreenFilmRenderer {
         }
 
         // Multi-tap highlight halation scatter
-        vec3 sampleHalation(sampler2D tex, vec2 uv, vec2 resolution, float threshold, vec3 halationTint, float intensity) {
+        vec3 sampleHalation(vec2 uv, vec2 resolution, float threshold, vec3 halationTint, float intensity) {
             if (intensity <= 0.0) return vec3(0.0);
 
             vec2 texel = 1.0 / resolution;
@@ -102,7 +102,7 @@ class OffscreenFilmRenderer {
 
             for (int i = 0; i < 8; i++) {
                 vec2 offsetUv = uv + kernel[i] * texel * 1.6;
-                vec3 col = texture(tex, offsetUv).rgb;
+                vec3 col = texture(u_Texture, offsetUv).rgb;
                 float lum = getLuminance(col);
 
                 float overExposure = max(0.0, lum - threshold) / (1.0 - threshold + 0.001);
@@ -134,9 +134,9 @@ class OffscreenFilmRenderer {
             return raw;
         }
 
-        vec3 applyPortra400(vec3 raw, vec2 uv, float t, vec2 res, sampler2D tex) {
+        vec3 applyPortra400(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
-            vec3 halation = sampleHalation(tex, uv, res, 0.72, vec3(1.0, 0.75, 0.45), 0.35);
+            vec3 halation = sampleHalation(uv, res, 0.72, vec3(1.0, 0.75, 0.45), 0.35);
 
             vec3 col = raw;
             col.r = clamp(col.r * 1.10 + 0.03, 0.0, 1.0);
@@ -153,10 +153,10 @@ class OffscreenFilmRenderer {
             return clamp(col, 0.0, 1.0);
         }
 
-        vec3 applyCineStill800T(vec3 raw, vec2 uv, float t, vec2 res, sampler2D tex) {
+        vec3 applyCineStill800T(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
             vec3 halationTint = vec3(1.0, 0.20, 0.05);
-            vec3 halation = sampleHalation(tex, uv, res, 0.62, halationTint, 1.45);
+            vec3 halation = sampleHalation(uv, res, 0.62, halationTint, 1.45);
 
             vec3 col = raw;
             col.r = clamp(col.r * 0.94 - 0.01, 0.0, 1.0);
@@ -202,9 +202,9 @@ class OffscreenFilmRenderer {
             return vec3(clamp(lum, 0.0, 1.0));
         }
 
-        vec3 applyPointAndShoot(vec3 raw, vec2 uv, float t, vec2 res, sampler2D tex) {
+        vec3 applyPointAndShoot(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
-            vec3 flashBloom = sampleHalation(tex, uv, res, 0.75, vec3(1.0, 0.85, 0.50), 0.45);
+            vec3 flashBloom = sampleHalation(uv, res, 0.75, vec3(1.0, 0.85, 0.50), 0.45);
 
             vec3 col = raw;
             col = mix(vec3(0.08, 0.06, 0.05), col, 0.92);
@@ -227,10 +227,10 @@ class OffscreenFilmRenderer {
 
             switch (u_FilterIndex) {
                 case 1:
-                    result = applyPortra400(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyPortra400(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 2:
-                    result = applyCineStill800T(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyCineStill800T(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 3:
                     result = applyFujiVelvia(raw.rgb, v_TexCoord, u_Time, u_Resolution);
@@ -239,7 +239,7 @@ class OffscreenFilmRenderer {
                     result = applyIlfordHP5(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 5:
-                    result = applyPointAndShoot(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyPointAndShoot(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 default:
                     result = applyStandard(raw.rgb);
@@ -350,6 +350,7 @@ class OffscreenFilmRenderer {
             }
 
             val uTexMatrixLoc = GLES30.glGetUniformLocation(programId, "u_TexMatrix")
+            val uTextureLoc = GLES30.glGetUniformLocation(programId, "u_Texture")
             val uTimeLoc = GLES30.glGetUniformLocation(programId, "u_Time")
             val uResolutionLoc = GLES30.glGetUniformLocation(programId, "u_Resolution")
             val uFilterIndexLoc = GLES30.glGetUniformLocation(programId, "u_FilterIndex")
@@ -431,6 +432,9 @@ class OffscreenFilmRenderer {
 
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inTexId)
+            if (uTextureLoc != -1) {
+                GLES30.glUniform1i(uTextureLoc, 0)
+            }
 
             GLES30.glBindVertexArray(vaoId)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)

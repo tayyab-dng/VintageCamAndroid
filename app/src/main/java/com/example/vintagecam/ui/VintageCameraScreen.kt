@@ -386,7 +386,6 @@ private fun ViewfinderFrame(
                 .aspectRatio(state.aspectRatio.floatRatio)
                 .clip(RoundedCornerShape(6.dp))
                 .border(2.dp, Color(0xFF2E3034), RoundedCornerShape(6.dp))
-                .background(Color.Black)
         ) {
             // Core OpenGL ES 3.0 Viewfinder stream
             content()

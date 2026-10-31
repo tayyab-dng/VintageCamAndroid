@@ -47,6 +47,12 @@ Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCa
 - Processed offscreen through an OpenGL ES 3.0 Framebuffer Object (`OffscreenFilmRenderer`) with active film shaders.
 - Losslessly cropped to the active aspect ratio, stamped with the quartz date, and saved to `Pictures/VintageCam/` in Android MediaStore with standard EXIF metadata.
 
+### 🌐 6. Universal Android & Modern GPU Compatibility
+- **Universal GPU Architecture Support:** Strict GLSL ES 3.00 compliance across Qualcomm Adreno (Adreno 640/730/740/750 on Snapdragon 8 Gen 1/2/3, including Galaxy S24 Ultra), ARM Mali (Mali-G76/G78/G715/Immortalis), and PowerVR.
+- **Opaque Sampler Scoping:** Samplers are bound globally with explicit `glUniform1i(uTextureLoc, 0)` texture unit mapping, avoiding driver-level function parameter rejections.
+- **Android 14+ Lifecycle & Looper Synchronization:** `SurfaceTexture` frame listener explicitly dispatches to `Looper.getMainLooper()` to guarantee reliable frame pumping across 120Hz/240Hz camera HALs.
+- **Hardware Layering:** `setZOrderMediaOverlay(true)` enables clean punch-through rendering without occlusion from Compose RenderNodes.
+
 ---
 
 ## 🛠️ Architecture & Tech Stack

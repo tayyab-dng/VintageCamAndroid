@@ -6,6 +6,8 @@ import android.opengl.GLES11Ext
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
@@ -50,8 +52,7 @@ class VintageGLRenderer(
     // Fragment shader: 35mm optical physics engine
     private val fragmentShaderSource = """
         #version 300 es
-        #extension GL_OES_EGL_image_external_essl3 : enable
-        #extension GL_OES_EGL_image_external : enable
+        #extension GL_OES_EGL_image_external_essl3 : require
 
         precision highp float;
 
@@ -99,7 +100,8 @@ class VintageGLRenderer(
         }
 
         // Multi-tap highlight halation scatter (signature anti-halation backing removal glow)
-        vec3 sampleHalation(samplerExternalOES tex, vec2 uv, vec2 resolution, float threshold, vec3 halationTint, float intensity) {
+        // Accesses global u_Texture directly for strict ESSL 3.00 compliance across all GPUs
+        vec3 sampleHalation(vec2 uv, vec2 resolution, float threshold, vec3 halationTint, float intensity) {
             if (intensity <= 0.0) return vec3(0.0);
 
             vec2 texel = 1.0 / resolution;
@@ -119,7 +121,7 @@ class VintageGLRenderer(
 
             for (int i = 0; i < 8; i++) {
                 vec2 offsetUv = uv + kernel[i] * texel * 1.6;
-                vec3 col = texture(tex, offsetUv).rgb;
+                vec3 col = texture(u_Texture, offsetUv).rgb;
                 float lum = getLuminance(col);
 
                 // Soft threshold extraction
@@ -158,9 +160,9 @@ class VintageGLRenderer(
         }
 
         // Index 1: KODAK PORTRA 400 (Warm golden pastels, gentle shadows, fine grain)
-        vec3 applyPortra400(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+        vec3 applyPortra400(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
-            vec3 halation = sampleHalation(tex, uv, res, 0.72, vec3(1.0, 0.75, 0.45), 0.35);
+            vec3 halation = sampleHalation(uv, res, 0.72, vec3(1.0, 0.75, 0.45), 0.35);
 
             vec3 col = raw;
             col.r = clamp(col.r * 1.10 + 0.03, 0.0, 1.0);
@@ -178,11 +180,11 @@ class VintageGLRenderer(
         }
 
         // Index 2: CINESTILL 800T (Cool cyan/tungsten color cast, contrasty night blacks, intense red-orange halation)
-        vec3 applyCineStill800T(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+        vec3 applyCineStill800T(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
             // Vermillion red-orange halation glow
             vec3 halationTint = vec3(1.0, 0.20, 0.05);
-            vec3 halation = sampleHalation(tex, uv, res, 0.62, halationTint, 1.45);
+            vec3 halation = sampleHalation(uv, res, 0.62, halationTint, 1.45);
 
             vec3 col = raw;
             col.r = clamp(col.r * 0.94 - 0.01, 0.0, 1.0);
@@ -231,9 +233,9 @@ class VintageGLRenderer(
         }
 
         // Index 5: RETRO 1980s POINT-AND-SHOOT (Milky faded blacks, warm color cast, aggressive corner vignette)
-        vec3 applyPointAndShoot(vec3 raw, vec2 uv, float t, vec2 res, samplerExternalOES tex) {
+        vec3 applyPointAndShoot(vec3 raw, vec2 uv, float t, vec2 res) {
             float lum = getLuminance(raw);
-            vec3 flashBloom = sampleHalation(tex, uv, res, 0.75, vec3(1.0, 0.85, 0.50), 0.45);
+            vec3 flashBloom = sampleHalation(uv, res, 0.75, vec3(1.0, 0.85, 0.50), 0.45);
 
             vec3 col = raw;
             col = mix(vec3(0.08, 0.06, 0.05), col, 0.92);
@@ -256,10 +258,10 @@ class VintageGLRenderer(
 
             switch (u_FilterIndex) {
                 case 1:
-                    result = applyPortra400(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyPortra400(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 2:
-                    result = applyCineStill800T(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyCineStill800T(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 3:
                     result = applyFujiVelvia(raw.rgb, v_TexCoord, u_Time, u_Resolution);
@@ -268,7 +270,7 @@ class VintageGLRenderer(
                     result = applyIlfordHP5(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 case 5:
-                    result = applyPointAndShoot(raw.rgb, v_TexCoord, u_Time, u_Resolution, u_Texture);
+                    result = applyPointAndShoot(raw.rgb, v_TexCoord, u_Time, u_Resolution);
                     break;
                 default:
                     result = applyStandard(raw.rgb);
@@ -304,6 +306,7 @@ class VintageGLRenderer(
 
     // Uniform locations
     private var uTexMatrixLoc = -1
+    private var uTextureLoc = -1
     private var uTimeLoc = -1
     private var uResolutionLoc = -1
     private var uFilterIndexLoc = -1
@@ -358,13 +361,14 @@ class VintageGLRenderer(
 
         // 2. Create SurfaceTexture
         val st = SurfaceTexture(oesTextureId)
-        st.setOnFrameAvailableListener(this)
+        st.setOnFrameAvailableListener(this, Handler(Looper.getMainLooper()))
         surfaceTexture = st
 
         // 3. Compile Shaders and link Program
         programId = createProgram(vertexShaderSource, fragmentShaderSource)
         if (programId != 0) {
             uTexMatrixLoc = GLES30.glGetUniformLocation(programId, "u_TexMatrix")
+            uTextureLoc = GLES30.glGetUniformLocation(programId, "u_Texture")
             uTimeLoc = GLES30.glGetUniformLocation(programId, "u_Time")
             uResolutionLoc = GLES30.glGetUniformLocation(programId, "u_Resolution")
             uFilterIndexLoc = GLES30.glGetUniformLocation(programId, "u_FilterIndex")
@@ -433,6 +437,9 @@ class VintageGLRenderer(
         // Bind OES Texture to Unit 0
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTextureId)
+        if (uTextureLoc != -1) {
+            GLES30.glUniform1i(uTextureLoc, 0)
+        }
 
         // Pass Uniforms
         GLES30.glUniformMatrix4fv(uTexMatrixLoc, 1, false, finalTexMatrix, 0)

@@ -27,6 +27,9 @@ class VintageGLSurfaceView @JvmOverloads constructor(
         // Preserve EGL context across pauses to avoid recreating textures
         preserveEGLContextOnPause = true
 
+        // Ensure surface renders properly as media overlay above window backgrounds
+        setZOrderMediaOverlay(true)
+
         renderer = VintageGLRenderer(this)
         setRenderer(renderer)
 
