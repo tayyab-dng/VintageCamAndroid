@@ -43,7 +43,8 @@ Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCa
   - Constrains height in 9:16 to preserve side pillarboxing without pushing framing brackets or the quartz datestamp off-screen.
   - Constrains width in 4:3 and 3:2 with uniform letterboxing, giving each mode a distinct visual silhouette.
 - **Zero-Latency Native 4:3 Sensor Lock:** CameraX hardware stream is locked strictly to 4:3 (native mobile camera sensor aspect ratio), eliminating stream renegotiation, frame freezes, and autofocus re-locking when cycling aspect ratios.
-- **Uniform OpenGL ES 3.0 Crop & Fill Scaling:** Center-crop UV mapping (`FILL_CENTER`) dynamically crops the 4:3 sensor stream without any horizontal or vertical distortion or stretching across all display sizes.
+- **Optical Sensor Crop Framing (`u_AspectCrop`):** Vertex shader applies centered optical crop framing in screen-aligned UV space before sensor rotation, guaranteeing 100% full vertical sensor height (`cropY = 1.0f`) with zero digital zoom across 4:3, 3:2, and 9:16 modes.
+- **Dynamic Viewfinder Window Resizing:** Viewfinder frame physically changes shape on screen with smooth letterboxing and pillarboxing, matching the exact aspect ratio with an inset border and framing reticle.
 - **35mm Reticle:** Minimalist corner brackets, center rangefinder focus circle, and toggleable rule-of-thirds grid.
 - **'90s Quartz Date Stamp:** Incandescent orange datestamp (`#FF7A00`) displayed in the viewfinder HUD and burned cleanly into exported photos.
 

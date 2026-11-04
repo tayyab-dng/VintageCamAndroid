@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import androidx.camera.core.Preview
+import com.example.vintagecam.camera.VintageAspectRatio
 
 /**
  * Dedicated OpenGL ES 3.0 SurfaceView for vintage viewfinder rendering.
@@ -57,5 +58,12 @@ class VintageGLSurfaceView @JvmOverloads constructor(
      */
     fun setBufferResolution(width: Int, height: Int) {
         renderer.setBufferResolution(width, height)
+    }
+
+    /**
+     * Sets optical crop framing for 4:3, 3:2, and 9:16 modes relative to the native 3:4 sensor.
+     */
+    fun setAspectRatio(aspectRatio: VintageAspectRatio) {
+        renderer.setAspectRatio(aspectRatio)
     }
 }

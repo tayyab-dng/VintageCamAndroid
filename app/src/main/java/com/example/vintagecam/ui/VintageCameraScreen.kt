@@ -211,27 +211,25 @@ fun VintageCameraScreen() {
 
                 BoxWithConstraints(
                     modifier = Modifier
-                        .fillMaxWidth()
                         .weight(1f)
+                        .fillMaxWidth()
+                        .padding(8.dp)
                         .background(Color(0xFF080808)),
                     contentAlignment = Alignment.Center
                 ) {
-                    val targetRatio = state.aspectRatio.floatRatio
-                    val availableWidth = if (maxWidth > 16.dp) maxWidth - 16.dp else 0.dp
-                    val availableHeight = if (maxHeight > 16.dp) maxHeight - 16.dp else 0.dp
-                    val availW = availableWidth.value
-                    val availH = availableHeight.value
-
-                    val isConstrainedByHeight = (availW / if (availH > 0f) availH else 1f) > targetRatio
-
-                    val (fittedWidth, fittedHeight) = if (isConstrainedByHeight) {
-                        Pair(availableHeight * targetRatio, availableHeight)
+                    val targetRatio = state.aspectRatio.floatRatio // 4:3 -> 0.75f, 3:2 -> 0.6667f, 9:16 -> 0.5625f
+                    val containerRatio = maxWidth / maxHeight
+                    val (frameWidth, frameHeight) = if (containerRatio > targetRatio) {
+                        (maxHeight * targetRatio) to maxHeight
                     } else {
-                        Pair(availableWidth, availableWidth / targetRatio)
+                        maxWidth to (maxWidth / targetRatio)
                     }
 
                     Box(
-                        modifier = Modifier.size(fittedWidth, fittedHeight),
+                        modifier = Modifier
+                            .size(frameWidth, frameHeight)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         ViewfinderFrame(
@@ -397,10 +395,7 @@ private fun ViewfinderFrame(
     content: @Composable () -> Unit
 ) {
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(2.dp, Color(0xFF2E3034), RoundedCornerShape(8.dp))
-            .background(Color.Black)
+        modifier = modifier.background(Color.Black)
     ) {
         // Core OpenGL ES 3.0 Viewfinder stream
         content()

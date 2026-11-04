@@ -15,6 +15,7 @@ import android.view.Surface
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
 import androidx.core.content.ContextCompat
+import com.example.vintagecam.camera.VintageAspectRatio
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -34,18 +35,21 @@ class VintageGLRenderer(
     private val surfaceView: GLSurfaceView
 ) : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener, Preview.SurfaceProvider {
 
-    // Vertex shader: transforms full-screen quad UVs by camera matrix
+    // Vertex shader: transforms full-screen quad UVs by camera matrix with optical aspect crop
     private val vertexShaderSource = """
         #version 300 es
         layout(location = 0) in vec2 a_Position;
         layout(location = 1) in vec2 a_TexCoord;
 
         uniform mat4 u_TexMatrix;
+        uniform vec2 u_AspectCrop;
         out vec2 v_TexCoord;
 
         void main() {
             gl_Position = vec4(a_Position, 0.0, 1.0);
-            v_TexCoord = (u_TexMatrix * vec4(a_TexCoord, 0.0, 1.0)).xy;
+            // Center-crop in screen-aligned quad UV space before hardware orientation transform
+            vec2 croppedTexCoord = (a_TexCoord - 0.5) * u_AspectCrop + 0.5;
+            v_TexCoord = (u_TexMatrix * vec4(croppedTexCoord, 0.0, 1.0)).xy;
         }
     """.trimIndent()
 
@@ -310,6 +314,11 @@ class VintageGLRenderer(
     private var uTimeLoc = -1
     private var uResolutionLoc = -1
     private var uFilterIndexLoc = -1
+    private var uAspectCropLoc = -1
+
+    // Aspect Ratio Optical Crop Framing (relative to native 3:4 sensor)
+    private var aspectCropX = (2f / 3f) / 0.75f
+    private var aspectCropY = 1.0f
 
     // Camera SurfaceTexture state
     private var surfaceTexture: SurfaceTexture? = null
@@ -343,6 +352,24 @@ class VintageGLRenderer(
         }
     }
 
+    /**
+     * Sets optical crop framing for 4:3, 3:2, and 9:16 modes relative to the native 3:4 sensor.
+     * Full vertical height (cropY = 1.0f) is always preserved with zero digital zoom.
+     */
+    fun setAspectRatio(aspectRatio: VintageAspectRatio) {
+        val (cropX, cropY) = when (aspectRatio) {
+            VintageAspectRatio.RATIO_4_3 -> 1.0f to 1.0f
+            VintageAspectRatio.RATIO_3_2 -> ((2f / 3f) / 0.75f) to 1.0f
+            VintageAspectRatio.RATIO_9_16 -> ((9f / 16f) / 0.75f) to 1.0f
+        }
+        if (aspectCropX != cropX || aspectCropY != cropY) {
+            aspectCropX = cropX
+            aspectCropY = cropY
+            Log.d(TAG, "setAspectRatio: ${aspectRatio.title} -> crop=(${aspectCropX}, ${aspectCropY})")
+            surfaceView.requestRender()
+        }
+    }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         Log.d(TAG, "onSurfaceCreated on GL thread")
 
@@ -372,6 +399,7 @@ class VintageGLRenderer(
             uTimeLoc = GLES30.glGetUniformLocation(programId, "u_Time")
             uResolutionLoc = GLES30.glGetUniformLocation(programId, "u_Resolution")
             uFilterIndexLoc = GLES30.glGetUniformLocation(programId, "u_FilterIndex")
+            uAspectCropLoc = GLES30.glGetUniformLocation(programId, "u_AspectCrop")
         }
 
         // 4. Set up VAO / VBO
@@ -449,6 +477,9 @@ class VintageGLRenderer(
         GLES30.glUniform1f(uTimeLoc, elapsedSeconds)
         GLES30.glUniform2f(uResolutionLoc, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES30.glUniform1i(uFilterIndexLoc, filterIndex.get())
+        if (uAspectCropLoc != -1) {
+            GLES30.glUniform2f(uAspectCropLoc, aspectCropX, aspectCropY)
+        }
 
         // Render Quad
         GLES30.glBindVertexArray(vaoId)
@@ -511,39 +542,16 @@ class VintageGLRenderer(
     private fun computeFinalTransformMatrix() {
         Matrix.setIdentityM(customMatrix, 0)
 
-        // 1. Shift to center (0.5, 0.5)
-        Matrix.translateM(customMatrix, 0, 0.5f, 0.5f, 0.0f)
-
-        // 2. Aspect Ratio Scaling (FILL_CENTER to avoid stretching) in DISPLAY coordinate space
-        val isRotated = cameraRotationDegrees == 90 || cameraRotationDegrees == 270
-        val effectiveCamWidth = if (isRotated) cameraHeight else cameraWidth
-        val effectiveCamHeight = if (isRotated) cameraWidth else cameraHeight
-
-        val camAspect = effectiveCamWidth.toFloat() / effectiveCamHeight.toFloat().coerceAtLeast(1f)
-        val viewAspect = viewportWidth.toFloat() / viewportHeight.toFloat().coerceAtLeast(1f)
-
-        var scaleX = 1.0f
-        var scaleY = 1.0f
-
-        if (viewAspect > camAspect) {
-            scaleY = camAspect / viewAspect
-        } else if (viewAspect < camAspect) {
-            scaleX = viewAspect / camAspect
-        }
-
-        Matrix.scaleM(customMatrix, 0, scaleX, scaleY, 1.0f)
-
-        // 3. Mirroring for front camera
+        // Front-camera horizontal mirroring around UV center (0.5, 0.5)
         if (cameraIsMirroring) {
+            Matrix.translateM(customMatrix, 0, 0.5f, 0.5f, 0.0f)
             Matrix.scaleM(customMatrix, 0, -1.0f, 1.0f, 1.0f)
+            Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)
         }
 
-        // 4. Shift back from origin to (0.5, 0.5)
-        Matrix.translateM(customMatrix, 0, -0.5f, -0.5f, 0.0f)
-
-        // 5. SurfaceTexture.getTransformMatrix already incorporates the hardware buffer transform
-        // aligning the camera stream with the portrait display. Multiply raw * custom to apply
-        // aspect ratio crop and front-camera mirroring onto quad texture coordinates.
+        // SurfaceTexture.getTransformMatrix already incorporates the hardware buffer transform
+        // aligning the camera stream upright with the portrait display.
+        // Aspect ratio crop framing is handled cleanly by u_AspectCrop in screen-aligned UV space.
         Matrix.multiplyMM(finalTexMatrix, 0, rawTexMatrix, 0, customMatrix, 0)
     }
 

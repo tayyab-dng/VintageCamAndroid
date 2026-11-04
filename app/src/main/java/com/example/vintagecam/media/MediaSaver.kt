@@ -33,29 +33,32 @@ object MediaSaver {
 
     /**
      * Crops a bitmap to match the requested aspect ratio while centering content cleanly.
+     * Aligned with native 3:4 sensor framing:
+     * - 4:3 (3:4 portrait) keeps 100% of the native sensor bitmap (0% crop).
+     * - 3:2 keeps 100% vertical height and center-crops width to height * (2f / 3f).
+     * - 9:16 keeps 100% vertical height and center-crops width to height * (9f / 16f).
      */
     fun cropToAspectRatio(source: Bitmap, targetRatio: Float): Bitmap {
+        val isLandscape = source.width > source.height
+        val effectiveRatio = if (isLandscape) 1f / targetRatio else targetRatio
         val currentRatio = source.width.toFloat() / source.height.toFloat()
-        // If image is landscape (width > height), invert target ratio for proportional landscape crop
-        val effectiveRatio = if (source.width >= source.height) {
-            1f / targetRatio
-        } else {
-            targetRatio
+
+        // 4:3 (or 3:4 in portrait) is native sensor - if ratio matches within tolerance, keep 100%
+        if (kotlin.math.abs(currentRatio - effectiveRatio) < 0.005f) {
+            return source
         }
 
         val cropWidth: Int
         val cropHeight: Int
 
         if (currentRatio > effectiveRatio) {
-            // Wider than target: crop horizontal edges
+            // Wider than target: keep 100% height, center-crop width
             cropHeight = source.height
             cropWidth = (cropHeight * effectiveRatio).roundToInt().coerceAtMost(source.width)
-        } else if (currentRatio < effectiveRatio) {
-            // Taller than target: crop vertical edges
+        } else {
+            // Taller than target: keep 100% width, center-crop height
             cropWidth = source.width
             cropHeight = (cropWidth / effectiveRatio).roundToInt().coerceAtMost(source.height)
-        } else {
-            return source
         }
 
         val cropX = ((source.width - cropWidth) / 2).coerceAtLeast(0)

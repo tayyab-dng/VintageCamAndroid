@@ -331,6 +331,11 @@ fun CameraPreview(
         glSurfaceView.setFilterIndex(filmPreset.filterIndex)
     }
 
+    // Dynamically update the optical aspect crop framing without re-initializing CameraX
+    LaunchedEffect(aspectRatio) {
+        glSurfaceView.setAspectRatio(aspectRatio)
+    }
+
     // Connect controller callbacks
     LaunchedEffect(controller, onPhotoCaptured, onCaptureStarted) {
         controller.onCaptureStarted = onCaptureStarted
@@ -486,7 +491,16 @@ fun CameraPreview(
     ) {
         // OpenGL ES 3.0 Surface View
         AndroidView(
-            factory = { glSurfaceView },
+            factory = {
+                glSurfaceView.apply {
+                    setAspectRatio(aspectRatio)
+                    setFilterIndex(filmPreset.filterIndex)
+                }
+            },
+            update = { view ->
+                view.setAspectRatio(aspectRatio)
+                view.setFilterIndex(filmPreset.filterIndex)
+            },
             modifier = Modifier.fillMaxSize()
         )
 
