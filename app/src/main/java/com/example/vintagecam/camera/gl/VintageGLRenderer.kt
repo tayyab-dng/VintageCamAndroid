@@ -407,6 +407,7 @@ class VintageGLRenderer(
         viewportHeight = height
         GLES30.glViewport(0, 0, width, height)
         Log.d(TAG, "onSurfaceChanged: viewport=${width}x${height}")
+        surfaceView.requestRender()
     }
 
     override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
@@ -469,6 +470,16 @@ class VintageGLRenderer(
         cameraIsMirroring = isMirroring
         Log.d(TAG, "setCameraTransformation: rot=$rotationDegrees, mirror=$isMirroring")
         surfaceView.requestRender()
+    }
+
+    fun setBufferResolution(width: Int, height: Int) {
+        if (cameraWidth != width || cameraHeight != height) {
+            cameraWidth = width
+            cameraHeight = height
+            surfaceTexture?.setDefaultBufferSize(width, height)
+            Log.d(TAG, "setBufferResolution: ${width}x${height}")
+            surfaceView.requestRender()
+        }
     }
 
     private fun provideSurfaceToRequest(request: SurfaceRequest, st: SurfaceTexture) {

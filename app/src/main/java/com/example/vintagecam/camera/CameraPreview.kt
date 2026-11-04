@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
@@ -354,17 +355,18 @@ fun CameraPreview(
         )
     }
 
-    // Rebind CameraX whenever lifecycle, lensFacing, aspectRatio, or flashMode change
-    LaunchedEffect(cameraProvider, lifecycleOwner, lensFacing, aspectRatio, flashMode) {
+    // Rebind CameraX whenever lifecycle, lensFacing, or flashMode change (aspect ratio switches are handled seamlessly in GPU viewport)
+    LaunchedEffect(cameraProvider, lifecycleOwner, lensFacing, flashMode) {
         val provider = cameraProvider ?: return@LaunchedEffect
 
         try {
             provider.unbindAll()
 
+            // Lock native camera sensor resolution strictly to 4:3 (native mobile hardware sensor ratio)
             val resolutionSelector = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(
                     AspectRatioStrategy(
-                        aspectRatio.cameraRatio,
+                        AspectRatio.RATIO_4_3,
                         AspectRatioStrategy.FALLBACK_RULE_AUTO
                     )
                 )
@@ -390,8 +392,11 @@ fun CameraPreview(
                 return@LaunchedEffect
             }
 
-            // Bind CameraX Preview to our OpenGL ES 3.0 Surface Provider!
-            preview.setSurfaceProvider(glSurfaceView.surfaceProvider)
+            // Bind CameraX Preview to our OpenGL ES 3.0 Surface Provider with explicit buffer sizing!
+            preview.setSurfaceProvider { request ->
+                glSurfaceView.setBufferResolution(request.resolution.width, request.resolution.height)
+                glSurfaceView.surfaceProvider.onSurfaceRequested(request)
+            }
 
             val camera = provider.bindToLifecycle(
                 lifecycleOwner,

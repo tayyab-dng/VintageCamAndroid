@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -208,71 +209,94 @@ fun VintageCameraScreen() {
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                        .background(Color(0xFF080808)),
                     contentAlignment = Alignment.Center
                 ) {
-                    ViewfinderFrame(
-                        state = state,
-                        quartzDateString = quartzDateString,
-                        content = {
-                            CameraPreview(
-                                modifier = Modifier.fillMaxSize(),
-                                lensFacing = state.lensFacing,
-                                aspectRatio = state.aspectRatio,
-                                flashMode = state.flashMode,
-                                filmPreset = state.filmPreset,
-                                controller = controller,
-                                onZoomChanged = { current, min, max ->
-                                    state = state.copy(
-                                        zoomRatio = current,
-                                        minZoom = min,
-                                        maxZoom = max
-                                    )
-                                },
-                                onExposureStateChanged = { isSupported, minIdx, maxIdx, step, currIdx ->
-                                    state = state.copy(
-                                        isEvSupported = isSupported,
-                                        minEvIndex = minIdx,
-                                        maxEvIndex = maxIdx,
-                                        evStep = step,
-                                        evIndex = currIdx,
-                                        evValue = currIdx * step
-                                    )
-                                },
-                                onCaptureStarted = {
-                                    coroutineScope.launch {
-                                        shutterAlpha.snapTo(1f)
-                                        shutterAlpha.animateTo(0f, tween(120, easing = LinearEasing))
-                                    }
-                                },
-                                onPhotoCaptured = { savedFile ->
-                                    state = state.copy(
-                                        frameCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
-                                    )
-                                }
-                            )
-                        }
-                    )
+                    val targetRatio = state.aspectRatio.floatRatio
+                    val availableWidth = if (maxWidth > 16.dp) maxWidth - 16.dp else 0.dp
+                    val availableHeight = if (maxHeight > 16.dp) maxHeight - 16.dp else 0.dp
+                    val availW = availableWidth.value
+                    val availH = availableHeight.value
 
-                    // Mechanical Shutter Blackout Layer
-                    if (shutterAlpha.value > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = shutterAlpha.value))
-                        )
+                    val isConstrainedByHeight = (availW / if (availH > 0f) availH else 1f) > targetRatio
+
+                    val (fittedWidth, fittedHeight) = if (isConstrainedByHeight) {
+                        Pair(availableHeight * targetRatio, availableHeight)
+                    } else {
+                        Pair(availableWidth, availableWidth / targetRatio)
                     }
 
-                    // Flash Pop Overlay
-                    if (flashAlpha.value > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.White.copy(alpha = flashAlpha.value))
+                    Box(
+                        modifier = Modifier.size(fittedWidth, fittedHeight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ViewfinderFrame(
+                            modifier = Modifier.fillMaxSize(),
+                            state = state,
+                            quartzDateString = quartzDateString,
+                            content = {
+                                CameraPreview(
+                                    modifier = Modifier.fillMaxSize(),
+                                    lensFacing = state.lensFacing,
+                                    aspectRatio = state.aspectRatio,
+                                    flashMode = state.flashMode,
+                                    filmPreset = state.filmPreset,
+                                    controller = controller,
+                                    onZoomChanged = { current, min, max ->
+                                        state = state.copy(
+                                            zoomRatio = current,
+                                            minZoom = min,
+                                            maxZoom = max
+                                        )
+                                    },
+                                    onExposureStateChanged = { isSupported, minIdx, maxIdx, step, currIdx ->
+                                        state = state.copy(
+                                            isEvSupported = isSupported,
+                                            minEvIndex = minIdx,
+                                            maxEvIndex = maxIdx,
+                                            evStep = step,
+                                            evIndex = currIdx,
+                                            evValue = currIdx * step
+                                        )
+                                    },
+                                    onCaptureStarted = {
+                                        coroutineScope.launch {
+                                            shutterAlpha.snapTo(1f)
+                                            shutterAlpha.animateTo(0f, tween(120, easing = LinearEasing))
+                                        }
+                                    },
+                                    onPhotoCaptured = { savedFile ->
+                                        state = state.copy(
+                                            frameCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
+                                        )
+                                    }
+                                )
+                            }
                         )
+
+                        // Mechanical Shutter Blackout Layer
+                        if (shutterAlpha.value > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Black.copy(alpha = shutterAlpha.value))
+                            )
+                        }
+
+                        // Flash Pop Overlay
+                        if (flashAlpha.value > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = flashAlpha.value))
+                            )
+                        }
                     }
                 }
             }
@@ -363,116 +387,106 @@ fun VintageCameraScreen() {
 }
 
 /**
- * Precision Viewfinder with letterbox/pillarbox masks and 90s Quartz Datestamp HUD.
+ * Precision Viewfinder Window with custom aspect ratio cropping, framing reticle, and 90s Quartz Datestamp HUD.
  */
 @Composable
 private fun ViewfinderFrame(
+    modifier: Modifier = Modifier,
     state: CameraUiState,
     quartzDateString: String,
     content: @Composable () -> Unit
 ) {
-    // Outer Container providing matte camera body letterboxing / pillarboxing
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(10.dp))
-            .background(VintageBlack),
-        contentAlignment = Alignment.Center
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(2.dp, Color(0xFF2E3034), RoundedCornerShape(8.dp))
+            .background(Color.Black)
     ) {
-        // Precision Viewfinder Window constrained to active aspect ratio (3:2, 4:3, or 9:16)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(state.aspectRatio.floatRatio)
-                .clip(RoundedCornerShape(6.dp))
-                .border(2.dp, Color(0xFF2E3034), RoundedCornerShape(6.dp))
-        ) {
-            // Core OpenGL ES 3.0 Viewfinder stream
-            content()
+        // Core OpenGL ES 3.0 Viewfinder stream
+        content()
 
-            // Viewfinder Reticle, Framing Guides & Center Rangefinder Circle
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidthPx = 1.5.dp.toPx()
-                val bracketLen = 20.dp.toPx()
-                val cornerOffset = 14.dp.toPx()
-                val reticleColor = Color(0xFFFFB03B).copy(alpha = 0.85f)
-                val gridColor = Color(0x33FFFFFF)
+        // Viewfinder Reticle, Framing Guides & Center Rangefinder Circle
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidthPx = 1.5.dp.toPx()
+            val bracketLen = 20.dp.toPx()
+            val cornerOffset = 14.dp.toPx()
+            val reticleColor = Color(0xFFFFB03B).copy(alpha = 0.85f)
+            val gridColor = Color(0x33FFFFFF)
 
-                // Rule-of-Thirds Grid
-                if (state.isGridVisible) {
-                    val oneThirdW = size.width / 3f
-                    val oneThirdH = size.height / 3f
+            // Rule-of-Thirds Grid
+            if (state.isGridVisible) {
+                val oneThirdW = size.width / 3f
+                val oneThirdH = size.height / 3f
 
-                    drawLine(gridColor, Offset(oneThirdW, 0f), Offset(oneThirdW, size.height), 1.dp.toPx())
-                    drawLine(gridColor, Offset(oneThirdW * 2f, 0f), Offset(oneThirdW * 2f, size.height), 1.dp.toPx())
-                    drawLine(gridColor, Offset(0f, oneThirdH), Offset(size.width, oneThirdH), 1.dp.toPx())
-                    drawLine(gridColor, Offset(0f, oneThirdH * 2f), Offset(size.width, oneThirdH * 2f), 1.dp.toPx())
-                }
-
-                // 4 Corner 35mm Frame Brackets
-                // Top-Left
-                drawLine(reticleColor, Offset(cornerOffset, cornerOffset), Offset(cornerOffset + bracketLen, cornerOffset), strokeWidthPx)
-                drawLine(reticleColor, Offset(cornerOffset, cornerOffset), Offset(cornerOffset, cornerOffset + bracketLen), strokeWidthPx)
-
-                // Top-Right
-                drawLine(reticleColor, Offset(size.width - cornerOffset, cornerOffset), Offset(size.width - cornerOffset - bracketLen, cornerOffset), strokeWidthPx)
-                drawLine(reticleColor, Offset(size.width - cornerOffset, cornerOffset), Offset(size.width - cornerOffset, cornerOffset + bracketLen), strokeWidthPx)
-
-                // Bottom-Left
-                drawLine(reticleColor, Offset(cornerOffset, size.height - cornerOffset), Offset(cornerOffset + bracketLen, size.height - cornerOffset), strokeWidthPx)
-                drawLine(reticleColor, Offset(cornerOffset, size.height - cornerOffset), Offset(cornerOffset, size.height - cornerOffset - bracketLen), strokeWidthPx)
-
-                // Bottom-Right
-                drawLine(reticleColor, Offset(size.width - cornerOffset, size.height - cornerOffset), Offset(size.width - cornerOffset - bracketLen, size.height - cornerOffset), strokeWidthPx)
-                drawLine(reticleColor, Offset(size.width - cornerOffset, size.height - cornerOffset), Offset(size.width - cornerOffset, size.height - cornerOffset - bracketLen), strokeWidthPx)
-
-                // Center Rangefinder Focus Circle
-                drawCircle(
-                    color = reticleColor.copy(alpha = 0.35f),
-                    radius = 24.dp.toPx(),
-                    center = center,
-                    style = Stroke(width = 1.dp.toPx())
-                )
-
-                // Center Crosshair
-                drawLine(
-                    color = reticleColor.copy(alpha = 0.45f),
-                    start = Offset(center.x - 7.dp.toPx(), center.y),
-                    end = Offset(center.x + 7.dp.toPx(), center.y),
-                    strokeWidth = 1.dp.toPx()
-                )
-                drawLine(
-                    color = reticleColor.copy(alpha = 0.45f),
-                    start = Offset(center.x, center.y - 7.dp.toPx()),
-                    end = Offset(center.x, center.y + 7.dp.toPx()),
-                    strokeWidth = 1.dp.toPx()
-                )
+                drawLine(gridColor, Offset(oneThirdW, 0f), Offset(oneThirdW, size.height), 1.dp.toPx())
+                drawLine(gridColor, Offset(oneThirdW * 2f, 0f), Offset(oneThirdW * 2f, size.height), 1.dp.toPx())
+                drawLine(gridColor, Offset(0f, oneThirdH), Offset(size.width, oneThirdH), 1.dp.toPx())
+                drawLine(gridColor, Offset(0f, oneThirdH * 2f), Offset(size.width, oneThirdH * 2f), 1.dp.toPx())
             }
 
-            // 90s Quartz Date Stamp OSD (Classic Incandescent Quartz Orange #FF7A00)
-            if (state.isDateStampEnabled) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 12.dp, bottom = 10.dp)
-                ) {
-                    Text(
-                        text = quartzDateString,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            letterSpacing = 2.sp
-                        ),
-                        color = Color(0xFFFF7A00),
-                        modifier = Modifier.shadow(
-                            elevation = 6.dp,
-                            shape = RoundedCornerShape(2.dp),
-                            spotColor = Color(0xFFFF7A00),
-                            ambientColor = Color(0xFFFF7A00)
-                        )
+            // 4 Corner 35mm Frame Brackets
+            // Top-Left
+            drawLine(reticleColor, Offset(cornerOffset, cornerOffset), Offset(cornerOffset + bracketLen, cornerOffset), strokeWidthPx)
+            drawLine(reticleColor, Offset(cornerOffset, cornerOffset), Offset(cornerOffset, cornerOffset + bracketLen), strokeWidthPx)
+
+            // Top-Right
+            drawLine(reticleColor, Offset(size.width - cornerOffset, cornerOffset), Offset(size.width - cornerOffset - bracketLen, cornerOffset), strokeWidthPx)
+            drawLine(reticleColor, Offset(size.width - cornerOffset, cornerOffset), Offset(size.width - cornerOffset, cornerOffset + bracketLen), strokeWidthPx)
+
+            // Bottom-Left
+            drawLine(reticleColor, Offset(cornerOffset, size.height - cornerOffset), Offset(cornerOffset + bracketLen, size.height - cornerOffset), strokeWidthPx)
+            drawLine(reticleColor, Offset(cornerOffset, size.height - cornerOffset), Offset(cornerOffset, size.height - cornerOffset - bracketLen), strokeWidthPx)
+
+            // Bottom-Right
+            drawLine(reticleColor, Offset(size.width - cornerOffset, size.height - cornerOffset), Offset(size.width - cornerOffset - bracketLen, size.height - cornerOffset), strokeWidthPx)
+            drawLine(reticleColor, Offset(size.width - cornerOffset, size.height - cornerOffset), Offset(size.width - cornerOffset, size.height - cornerOffset - bracketLen), strokeWidthPx)
+
+            // Center Rangefinder Focus Circle
+            drawCircle(
+                color = reticleColor.copy(alpha = 0.35f),
+                radius = 24.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            // Center Crosshair
+            drawLine(
+                color = reticleColor.copy(alpha = 0.45f),
+                start = Offset(center.x - 7.dp.toPx(), center.y),
+                end = Offset(center.x + 7.dp.toPx(), center.y),
+                strokeWidth = 1.dp.toPx()
+            )
+            drawLine(
+                color = reticleColor.copy(alpha = 0.45f),
+                start = Offset(center.x, center.y - 7.dp.toPx()),
+                end = Offset(center.x, center.y + 7.dp.toPx()),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        // 90s Quartz Date Stamp OSD (Classic Incandescent Quartz Orange #FF7A00)
+        if (state.isDateStampEnabled) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 12.dp, bottom = 10.dp)
+            ) {
+                Text(
+                    text = quartzDateString,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        letterSpacing = 2.sp
+                    ),
+                    color = Color(0xFFFF7A00),
+                    modifier = Modifier.shadow(
+                        elevation = 6.dp,
+                        shape = RoundedCornerShape(2.dp),
+                        spotColor = Color(0xFFFF7A00),
+                        ambientColor = Color(0xFFFF7A00)
                     )
-                }
+                )
             }
         }
     }

@@ -51,4 +51,11 @@ class VintageGLSurfaceView @JvmOverloads constructor(
     fun setCameraTransformation(rotationDegrees: Int, isMirroring: Boolean) {
         renderer.setCameraTransformation(rotationDegrees, isMirroring)
     }
+
+    /**
+     * Updates camera stream resolution for proper buffer configuration and aspect ratio UV scaling.
+     */
+    fun setBufferResolution(width: Int, height: Int) {
+        renderer.setBufferResolution(width, height)
+    }
 }
