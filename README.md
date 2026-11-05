@@ -1,8 +1,29 @@
 # VintageCam Android 📷
 
+[![Latest Release](https://img.shields.io/github/v/release/tayyab-dng/VintageCamAndroid?color=FFB300&label=Release&style=for-the-badge)](https://github.com/tayyab-dng/VintageCamAndroid/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-VintageCam%20APK-00E676?style=for-the-badge&logo=android&logoColor=white)](https://github.com/tayyab-dng/VintageCamAndroid/releases/latest/download/VintageCam-v1.0.0.apk)
+[![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-blue?style=for-the-badge&logo=android)](https://github.com/tayyab-dng/VintageCamAndroid)
+[![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=for-the-badge)](LICENSE)
+
 A modern, high-performance vintage analog camera application for Android built with **Kotlin**, **Jetpack Compose**, **CameraX**, and an **OpenGL ES 3.0 Optical Physics Shader Engine**.
 
-Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCam combines authentic photochemical film emulation with a tactile industrial design ("Concept 46").
+Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCam combines authentic photochemical film emulation with a tactile industrial design.
+
+---
+
+## 📥 Download & Installation
+
+Install the pre-compiled APK directly on your phone:
+
+[![Download APK](https://img.shields.io/badge/Download-VintageCam--v1.0.0.apk-00E676?style=for-the-badge&logo=android&logoColor=white)](https://github.com/tayyab-dng/VintageCamAndroid/releases/latest/download/VintageCam-v1.0.0.apk)
+
+1. **[Direct Download APK (v1.0.0)](https://github.com/tayyab-dng/VintageCamAndroid/releases/latest/download/VintageCam-v1.0.0.apk)** (`21.9 MB`, compatible with Android 8.0+ / Oreo to Android 15+).
+2. On your Android device, tap the downloaded `.apk` file to install.
+3. If prompted with *"For your security, your phone is not allowed to install unknown apps from this source"*, tap **Settings** and enable **Allow from this source**.
+4. Launch **VintageCam** and grant the Camera permission to experience the real-time optical shader engine and manual hardware controls!
+
+> **Releases Page:** [github.com/tayyab-dng/VintageCamAndroid/releases](https://github.com/tayyab-dng/VintageCamAndroid/releases)  
+> **Checksum (SHA-256):** `873F42EE517EB37B8F0A8C961B9A1B574976F7E918BC4D4E37676C5DD7945AE4`
 
 ---
 
