@@ -4,9 +4,16 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraControl
@@ -68,14 +75,90 @@ import kotlin.math.roundToInt
 private const val TAG = "VintageCameraPreview"
 
 /**
- * Controller to trigger camera actions and manual exposure from parent composables.
+ * Controller to trigger camera actions and manual hardware controls (ISO, Shutter Speed, Focus, EV)
+ * via Camera2Interop from parent composables.
  */
+@OptIn(ExperimentalCamera2Interop::class)
 class VintageCameraController internal constructor() {
     internal var imageCapture: ImageCapture? = null
     internal var cameraControl: CameraControl? = null
+    internal var camera2Control: Camera2CameraControl? = null
+    internal var camera2Info: Camera2CameraInfo? = null
     internal var onCaptureStarted: (() -> Unit)? = null
     internal var onCaptureSuccess: ((File) -> Unit)? = null
     internal var onCaptureError: ((Exception) -> Unit)? = null
+
+    var isAutoExposure: Boolean = true
+        private set
+    var selectedIso: Int = 400
+        private set
+    var selectedExposureNanos: Long = 8_000_000L // 1/125s
+        private set
+    var isAutoFocus: Boolean = true
+        private set
+    var focusDistanceDiopters: Float = 0.0f
+        private set
+
+    fun setAutoExposure(isAuto: Boolean) {
+        isAutoExposure = isAuto
+        applyHardwareCaptureSettings()
+    }
+
+    fun setManualIso(iso: Int) {
+        selectedIso = iso
+        isAutoExposure = false
+        applyHardwareCaptureSettings()
+    }
+
+    fun setManualShutterSpeed(nanos: Long) {
+        selectedExposureNanos = nanos
+        isAutoExposure = false
+        applyHardwareCaptureSettings()
+    }
+
+    fun setAutoFocus(isAuto: Boolean) {
+        isAutoFocus = isAuto
+        applyHardwareCaptureSettings()
+    }
+
+    fun setManualFocus(diopters: Float) {
+        focusDistanceDiopters = diopters
+        isAutoFocus = false
+        applyHardwareCaptureSettings()
+    }
+
+    internal fun reapplyHardwareCaptureSettings() {
+        applyHardwareCaptureSettings()
+    }
+
+    private fun applyHardwareCaptureSettings() {
+        val c2Control = camera2Control ?: return
+        val builder = CaptureRequestOptions.Builder()
+
+        // 1. Exposure Mode: Auto (ON) vs Manual (OFF with explicit SENSITIVITY & EXPOSURE_TIME)
+        if (isAutoExposure) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+        } else {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+            builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, selectedIso)
+            builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, selectedExposureNanos)
+        }
+
+        // 2. Focus Mode: Auto (CONTINUOUS_PICTURE) vs Manual (OFF with explicit LENS_FOCUS_DISTANCE)
+        if (isAutoFocus) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+        } else {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            builder.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistanceDiopters)
+        }
+
+        try {
+            c2Control.setCaptureRequestOptions(builder.build())
+            Log.d(TAG, "Applied hardware capture options: AE=$isAutoExposure (ISO=$selectedIso, SS=$selectedExposureNanos ns), AF=$isAutoFocus (Focus=$focusDistanceDiopters diopters)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply CaptureRequestOptions", e)
+        }
+    }
 
     /**
      * Raw CameraX capture utilizing takePicture with OnImageCapturedCallback to obtain an in-memory ImageProxy.
@@ -292,6 +375,8 @@ fun CameraPreview(
     controller: VintageCameraController = rememberVintageCameraController(),
     onZoomChanged: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onExposureStateChanged: (isSupported: Boolean, minIndex: Int, maxIndex: Int, step: Float, currentIndex: Int) -> Unit = { _, _, _, _, _ -> },
+    onHardwareCapabilitiesChanged: (supportedIsos: List<Int>, supportedShutters: List<ShutterSpeedStop>, maxFocusDistance: Float, isManualFocusSupported: Boolean) -> Unit = { _, _, _, _ -> },
+    onAutoFocusReset: () -> Unit = {},
     onPhotoCaptured: (File) -> Unit = {},
     onCaptureStarted: () -> Unit = {}
 ) {
@@ -414,6 +499,47 @@ fun CameraPreview(
             controller.imageCapture = imageCapture
             controller.cameraControl = camera.cameraControl
 
+            // Initialize Camera2Interop hardware controls
+            val camera2Control = Camera2CameraControl.from(camera.cameraControl)
+            val camera2Info = Camera2CameraInfo.from(camera.cameraInfo)
+            controller.camera2Control = camera2Control
+            controller.camera2Info = camera2Info
+
+            // Query hardware sensitivity, shutter speed range, and lens focus distance
+            val isoRange = camera2Info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+            val exposureRange = camera2Info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
+            val minFocusDistance = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0.0f
+            val isManualFocusSupported = minFocusDistance > 0.0f
+
+            val allIsoStops = listOf(50, 100, 200, 400, 800, 1600, 3200)
+            val supportedIsos = if (isoRange != null) {
+                allIsoStops.filter { it in isoRange.lower..isoRange.upper }
+            } else {
+                allIsoStops
+            }
+
+            val allShutterStops = listOf(
+                ShutterSpeedStop("1/4000", 250_000L),
+                ShutterSpeedStop("1/2000", 500_000L),
+                ShutterSpeedStop("1/1000", 1_000_000L),
+                ShutterSpeedStop("1/500", 2_000_000L),
+                ShutterSpeedStop("1/250", 4_000_000L),
+                ShutterSpeedStop("1/125", 8_000_000L),
+                ShutterSpeedStop("1/60", 16_666_667L),
+                ShutterSpeedStop("1/30", 33_333_333L),
+                ShutterSpeedStop("1/15", 66_666_667L),
+                ShutterSpeedStop("1/8", 125_000_000L),
+                ShutterSpeedStop("1/4", 250_000_000L)
+            )
+            val supportedShutters = if (exposureRange != null) {
+                allShutterStops.filter { it.nanos in exposureRange.lower..exposureRange.upper }
+            } else {
+                allShutterStops
+            }
+
+            onHardwareCapabilitiesChanged(supportedIsos, supportedShutters, minFocusDistance, isManualFocusSupported)
+            controller.reapplyHardwareCaptureSettings()
+
             // Listen to zoom state
             camera.cameraInfo.zoomState.observe(lifecycleOwner) { zoomState ->
                 zoomState?.let {
@@ -456,6 +582,10 @@ fun CameraPreview(
             .pointerInput(activeCamera) {
                 detectTapGestures { offset ->
                     val camera = activeCamera ?: return@detectTapGestures
+                    if (!controller.isAutoFocus) {
+                        controller.setAutoFocus(true)
+                        onAutoFocusReset()
+                    }
                     val widthPx = size.width.toFloat()
                     val heightPx = size.height.toFloat()
                     if (widthPx <= 0f || heightPx <= 0f) return@detectTapGestures

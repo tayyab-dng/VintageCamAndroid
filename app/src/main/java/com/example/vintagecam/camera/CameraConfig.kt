@@ -84,6 +84,22 @@ enum class VintageFilmPreset(
 }
 
 /**
+ * Discrete shutter speed stop mapping human-readable exposure labels to nanoseconds.
+ */
+data class ShutterSpeedStop(val label: String, val nanos: Long)
+
+/**
+ * Selectable pro camera telemetry tabs for manual parameter adjustments.
+ */
+enum class ProControlTab(val title: String) {
+    FILM("FILM"),
+    ISO("ISO"),
+    SS("SS"),
+    FOCUS("FOCUS"),
+    EV("EV")
+}
+
+/**
  * Mutable state holding the viewfinder, optical HUD, and camera controls.
  */
 data class CameraUiState(
@@ -110,5 +126,32 @@ data class CameraUiState(
     val isCapturing: Boolean = false,
     val lastCapturedUri: Uri? = null,
     val lastThumbnail: Bitmap? = null,
-    val lastCapturedMessage: String? = null
+    val lastCapturedMessage: String? = null,
+
+    // Real Hardware Manual Controls (Camera2Interop)
+    val isAutoExposure: Boolean = true,
+    val selectedIso: Int? = null, // null = Auto
+    val selectedShutterLabel: String? = null, // null = Auto, e.g. "1/125"
+    val selectedShutterNanos: Long = 8_000_000L,
+    val isAutoFocus: Boolean = true,
+    val manualFocusDistance: Float = 0.0f, // 0.0f = Infinity ∞
+    val maxFocusDistance: Float = 10.0f,
+    val isManualFocusSupported: Boolean = true,
+    val supportedIsoStops: List<Int> = listOf(50, 100, 200, 400, 800, 1600, 3200),
+    val supportedShutterStops: List<ShutterSpeedStop> = listOf(
+        ShutterSpeedStop("1/4000", 250_000L),
+        ShutterSpeedStop("1/2000", 500_000L),
+        ShutterSpeedStop("1/1000", 1_000_000L),
+        ShutterSpeedStop("1/500", 2_000_000L),
+        ShutterSpeedStop("1/250", 4_000_000L),
+        ShutterSpeedStop("1/125", 8_000_000L),
+        ShutterSpeedStop("1/60", 16_666_667L),
+        ShutterSpeedStop("1/30", 33_333_333L),
+        ShutterSpeedStop("1/15", 66_666_667L),
+        ShutterSpeedStop("1/8", 125_000_000L),
+        ShutterSpeedStop("1/4", 250_000_000L)
+    ),
+
+    // Contextual Pro Drawer state (null = collapsed drawer)
+    val activeProTab: ProControlTab? = null
 )

@@ -3,13 +3,10 @@ package com.example.vintagecam.ui
 import android.content.Intent
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,19 +15,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,28 +45,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vintagecam.camera.CameraPreview
 import com.example.vintagecam.camera.CameraUiState
+import com.example.vintagecam.camera.ProControlTab
 import com.example.vintagecam.camera.VintageAspectRatio
-import com.example.vintagecam.camera.VintageFilmPreset
 import com.example.vintagecam.camera.VintageFlashMode
 import com.example.vintagecam.camera.rememberVintageCameraController
 import com.example.vintagecam.haptics.rememberHapticManager
-import com.example.vintagecam.theme.Concept46RubberDark
-import com.example.vintagecam.theme.VintageAmber
 import com.example.vintagecam.theme.VintageBlack
-import com.example.vintagecam.theme.VintageBodyDark
-import com.example.vintagecam.theme.VintageLeatherGrip
-import com.example.vintagecam.theme.VintageMetalDark
-import com.example.vintagecam.theme.VintageSurfaceElevated
-import com.example.vintagecam.theme.VintageTextLight
-import com.example.vintagecam.theme.VintageTextMuted
-import com.example.vintagecam.ui.components.Concept46BottomGrip
-import com.example.vintagecam.ui.components.TopTitaniumBar
-import com.example.vintagecam.ui.components.ViewfinderExposureSlider
+import com.example.vintagecam.ui.components.BottomShutterDeck
+import com.example.vintagecam.ui.components.ProControlBar
+import com.example.vintagecam.ui.components.TopUtilityHeader
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.math.roundToInt
 
+/**
+ * Minimalist, Leica/Halide-inspired analog camera screen.
+ * Decluttered of all fake gauges and permanently visible rulers.
+ * Features:
+ * 1. Compact Top Utility Header (EXP counter, Aspect Ratio, Flash, Grid, Quartz Date).
+ * 2. True fitted aspect ratio Viewfinder with 35mm optical reticle and incandescent Quartz Date HUD.
+ * 3. Contextual Single-Dial Pro Control Bar (FILM, ISO, SS, FOCUS, EV) with smooth expandable vernier dial.
+ * 4. Clean Bottom Shutter Deck (Gallery thumbnail, 72mm machined-aluminum & red Leica shutter, Camera Flip).
+ */
 @Composable
 fun VintageCameraScreen() {
     val context = LocalContext.current
@@ -85,18 +75,18 @@ fun VintageCameraScreen() {
     val hapticManager = rememberHapticManager()
 
     var state by remember { mutableStateOf(CameraUiState()) }
-    var showFilmTray by remember { mutableStateOf(false) }
 
-    // Shutter animation states
+    // Shutter animation and flash pop states
     val shutterAlpha = remember { Animatable(0f) }
     val flashAlpha = remember { Animatable(0f) }
 
-    // 90s Quartz Date Stamp string (e.g. '26 10 13)
+    // 90s Quartz Date format: 'YY MM DD
     val quartzDateString = remember {
-        SimpleDateFormat("''yy MM dd", Locale.US).format(System.currentTimeMillis())
+        val dateFormat = SimpleDateFormat("''yy MM dd", Locale.US)
+        dateFormat.format(System.currentTimeMillis())
     }
 
-    val openGallery = {
+    fun openGallery() {
         val uri = state.lastCapturedUri
         val intent = if (uri != null) {
             Intent(Intent.ACTION_VIEW).apply {
@@ -127,19 +117,10 @@ fun VintageCameraScreen() {
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // ==========================================
-            // 1. TOP TITANIUM / METALLIC BEZEL BAR
+            // 1. SLEEK TOP UTILITY HEADER (SINGLE COMPACT ROW)
             // ==========================================
-            TopTitaniumBar(
+            TopUtilityHeader(
                 state = state,
-                onFlashToggle = {
-                    hapticManager.dialClick()
-                    val nextFlash = when (state.flashMode) {
-                        VintageFlashMode.AUTO -> VintageFlashMode.ON
-                        VintageFlashMode.ON -> VintageFlashMode.OFF
-                        VintageFlashMode.OFF -> VintageFlashMode.AUTO
-                    }
-                    state = state.copy(flashMode = nextFlash)
-                },
                 onAspectRatioToggle = {
                     hapticManager.dialClick()
                     val nextRatio = when (state.aspectRatio) {
@@ -149,6 +130,15 @@ fun VintageCameraScreen() {
                     }
                     state = state.copy(aspectRatio = nextRatio)
                 },
+                onFlashToggle = {
+                    hapticManager.dialClick()
+                    val nextFlash = when (state.flashMode) {
+                        VintageFlashMode.AUTO -> VintageFlashMode.ON
+                        VintageFlashMode.ON -> VintageFlashMode.OFF
+                        VintageFlashMode.OFF -> VintageFlashMode.AUTO
+                    }
+                    state = state.copy(flashMode = nextFlash)
+                },
                 onGridToggle = {
                     hapticManager.dialClick()
                     state = state.copy(isGridVisible = !state.isGridVisible)
@@ -156,156 +146,177 @@ fun VintageCameraScreen() {
                 onDateStampToggle = {
                     hapticManager.dialClick()
                     state = state.copy(isDateStampEnabled = !state.isDateStampEnabled)
-                },
-                onFilmPresetClick = {
-                    hapticManager.dialClick()
-                    showFilmTray = !showFilmTray
                 }
             )
 
             // ==========================================
-            // 2. FILM TRAY POPUP (Expandable film stocks)
+            // 2. CENTRAL VIEWFINDER WITH DYNAMIC ASPECT RATIO RESIZING
             // ==========================================
-            AnimatedVisibility(
-                visible = showFilmTray,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                FilmSimulationSelector(
-                    activePreset = state.filmPreset,
-                    onSelectPreset = { preset ->
-                        hapticManager.ratchetTick()
-                        state = state.copy(filmPreset = preset)
-                        showFilmTray = false
-                    }
-                )
-            }
-
-            // ==========================================
-            // 3. CENTRAL VIEWFINDER WITH ASPECT RATIO MASKING & EXPOSURE SLIDER
-            // ==========================================
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(8.dp)
+                    .background(Color(0xFF080808)),
+                contentAlignment = Alignment.Center
             ) {
-                // Subtle horizontal exposure slider right above viewfinder
-                ViewfinderExposureSlider(
-                    currentEv = state.evValue,
-                    onEvChanged = { newEv ->
-                        val newIndex = (newEv / state.evStep).roundToInt().coerceIn(state.minEvIndex, state.maxEvIndex)
-                        if (newIndex != state.evIndex) {
-                            controller.setExposureCompensation(newIndex)
-                            state = state.copy(evValue = newEv, evIndex = newIndex)
-                        }
-                    },
-                    onTickHaptic = {
-                        hapticManager.ratchetTick()
-                    }
-                )
+                val targetRatio = state.aspectRatio.floatRatio // 4:3 -> 0.75f, 3:2 -> 0.6667f, 9:16 -> 0.5625f
+                val containerRatio = maxWidth / maxHeight
+                val (frameWidth, frameHeight) = if (containerRatio > targetRatio) {
+                    (maxHeight * targetRatio) to maxHeight
+                } else {
+                    maxWidth to (maxWidth / targetRatio)
+                }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                BoxWithConstraints(
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(8.dp)
-                        .background(Color(0xFF080808)),
+                        .size(frameWidth, frameHeight)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(8.dp))
+                        .clickable {
+                            // Tapping the viewfinder dismisses any open pro drawer for clean shooting
+                            if (state.activeProTab != null) {
+                                state = state.copy(activeProTab = null)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    val targetRatio = state.aspectRatio.floatRatio // 4:3 -> 0.75f, 3:2 -> 0.6667f, 9:16 -> 0.5625f
-                    val containerRatio = maxWidth / maxHeight
-                    val (frameWidth, frameHeight) = if (containerRatio > targetRatio) {
-                        (maxHeight * targetRatio) to maxHeight
-                    } else {
-                        maxWidth to (maxWidth / targetRatio)
+                    ViewfinderFrame(
+                        modifier = Modifier.fillMaxSize(),
+                        state = state,
+                        quartzDateString = quartzDateString,
+                        content = {
+                            CameraPreview(
+                                modifier = Modifier.fillMaxSize(),
+                                lensFacing = state.lensFacing,
+                                aspectRatio = state.aspectRatio,
+                                flashMode = state.flashMode,
+                                filmPreset = state.filmPreset,
+                                controller = controller,
+                                onZoomChanged = { current, min, max ->
+                                    state = state.copy(
+                                        zoomRatio = current,
+                                        minZoom = min,
+                                        maxZoom = max
+                                    )
+                                },
+                                onExposureStateChanged = { isSupported, minIdx, maxIdx, step, currIdx ->
+                                    state = state.copy(
+                                        isEvSupported = isSupported,
+                                        minEvIndex = minIdx,
+                                        maxEvIndex = maxIdx,
+                                        evStep = step,
+                                        evIndex = currIdx,
+                                        evValue = currIdx * step
+                                    )
+                                },
+                                onHardwareCapabilitiesChanged = { isos, shutters, minFocusDist, isManualFocusSupported ->
+                                    state = state.copy(
+                                        supportedIsoStops = isos,
+                                        supportedShutterStops = shutters,
+                                        maxFocusDistance = if (minFocusDist > 0f) minFocusDist else 10.0f,
+                                        isManualFocusSupported = isManualFocusSupported
+                                    )
+                                },
+                                onAutoFocusReset = {
+                                    state = state.copy(isAutoFocus = true)
+                                },
+                                onCaptureStarted = {
+                                    coroutineScope.launch {
+                                        shutterAlpha.snapTo(1f)
+                                        shutterAlpha.animateTo(0f, tween(120, easing = LinearEasing))
+                                    }
+                                },
+                                onPhotoCaptured = { savedFile ->
+                                    state = state.copy(
+                                        frameCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
+                                    )
+                                }
+                            )
+                        }
+                    )
+
+                    // Mechanical Shutter Blackout Layer
+                    if (shutterAlpha.value > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = shutterAlpha.value))
+                        )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .size(frameWidth, frameHeight)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ViewfinderFrame(
-                            modifier = Modifier.fillMaxSize(),
-                            state = state,
-                            quartzDateString = quartzDateString,
-                            content = {
-                                CameraPreview(
-                                    modifier = Modifier.fillMaxSize(),
-                                    lensFacing = state.lensFacing,
-                                    aspectRatio = state.aspectRatio,
-                                    flashMode = state.flashMode,
-                                    filmPreset = state.filmPreset,
-                                    controller = controller,
-                                    onZoomChanged = { current, min, max ->
-                                        state = state.copy(
-                                            zoomRatio = current,
-                                            minZoom = min,
-                                            maxZoom = max
-                                        )
-                                    },
-                                    onExposureStateChanged = { isSupported, minIdx, maxIdx, step, currIdx ->
-                                        state = state.copy(
-                                            isEvSupported = isSupported,
-                                            minEvIndex = minIdx,
-                                            maxEvIndex = maxIdx,
-                                            evStep = step,
-                                            evIndex = currIdx,
-                                            evValue = currIdx * step
-                                        )
-                                    },
-                                    onCaptureStarted = {
-                                        coroutineScope.launch {
-                                            shutterAlpha.snapTo(1f)
-                                            shutterAlpha.animateTo(0f, tween(120, easing = LinearEasing))
-                                        }
-                                    },
-                                    onPhotoCaptured = { savedFile ->
-                                        state = state.copy(
-                                            frameCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
-                                        )
-                                    }
-                                )
-                            }
+                    // Flash Pop Overlay
+                    if (flashAlpha.value > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White.copy(alpha = flashAlpha.value))
                         )
-
-                        // Mechanical Shutter Blackout Layer
-                        if (shutterAlpha.value > 0f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Black.copy(alpha = shutterAlpha.value))
-                            )
-                        }
-
-                        // Flash Pop Overlay
-                        if (flashAlpha.value > 0f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White.copy(alpha = flashAlpha.value))
-                            )
-                        }
                     }
                 }
             }
 
             // ==========================================
-            // 4. ASYMMETRIC 'CONCEPT 46' BOTTOM GRIP PANEL
+            // 3. CONTEXTUAL SINGLE-DIAL PRO CONTROL BAR
             // ==========================================
-            Concept46BottomGrip(
+            ProControlBar(
+                state = state,
+                onTabSelected = { tab ->
+                    hapticManager.dialClick()
+                    state = state.copy(activeProTab = if (state.activeProTab == tab) null else tab)
+                },
+                onFilmPresetSelected = { preset ->
+                    hapticManager.ratchetTick()
+                    state = state.copy(filmPreset = preset)
+                },
+                onIsoSelected = { iso ->
+                    hapticManager.dialClick()
+                    if (iso == null) {
+                        controller.setAutoExposure(true)
+                        state = state.copy(isAutoExposure = true, selectedIso = null)
+                    } else {
+                        controller.setManualIso(iso)
+                        state = state.copy(isAutoExposure = false, selectedIso = iso)
+                    }
+                },
+                onShutterSpeedSelected = { label, nanos ->
+                    hapticManager.dialClick()
+                    if (label == null) {
+                        controller.setAutoExposure(true)
+                        state = state.copy(isAutoExposure = true, selectedShutterLabel = null)
+                    } else {
+                        controller.setManualShutterSpeed(nanos)
+                        state = state.copy(
+                            isAutoExposure = false,
+                            selectedShutterLabel = label,
+                            selectedShutterNanos = nanos
+                        )
+                    }
+                },
+                onAutoFocusToggle = { isAuto ->
+                    hapticManager.dialClick()
+                    controller.setAutoFocus(isAuto)
+                    state = state.copy(isAutoFocus = isAuto)
+                },
+                onManualFocusDistanceChanged = { diopters ->
+                    hapticManager.ratchetTick()
+                    controller.setManualFocus(diopters)
+                    state = state.copy(isAutoFocus = false, manualFocusDistance = diopters)
+                },
+                onEvChanged = { evVal, evIdx ->
+                    hapticManager.ratchetTick()
+                    controller.setExposureCompensation(evIdx)
+                    state = state.copy(evValue = evVal, evIndex = evIdx)
+                }
+            )
+
+            // ==========================================
+            // 4. CLEAN BOTTOM SHUTTER DECK
+            // ==========================================
+            BottomShutterDeck(
                 state = state,
                 onShutterClick = {
-                    if (state.isCapturing) return@Concept46BottomGrip
+                    if (state.isCapturing) return@BottomShutterDeck
                     hapticManager.shutterRelease()
                     state = state.copy(isCapturing = true)
                     coroutineScope.launch {
@@ -353,10 +364,6 @@ fun VintageCameraScreen() {
                     hapticManager.dialClick()
                     openGallery()
                 },
-                onFilmTrayToggle = {
-                    hapticManager.ratchetTick()
-                    showFilmTray = !showFilmTray
-                },
                 onSwitchCamera = {
                     hapticManager.dialClick()
                     val nextLens = if (state.lensFacing == CameraSelector.LENS_FACING_BACK) {
@@ -365,19 +372,6 @@ fun VintageCameraScreen() {
                         CameraSelector.LENS_FACING_BACK
                     }
                     state = state.copy(lensFacing = nextLens)
-                },
-                onEvChanged = { newEv ->
-                    val newIndex = (newEv / state.evStep).roundToInt().coerceIn(state.minEvIndex, state.maxEvIndex)
-                    if (newIndex != state.evIndex) {
-                        controller.setExposureCompensation(newIndex)
-                        state = state.copy(evValue = newEv, evIndex = newIndex)
-                    }
-                },
-                onTickHaptic = {
-                    hapticManager.ratchetTick()
-                },
-                onDialHaptic = {
-                    hapticManager.dialClick()
                 }
             )
         }
@@ -482,75 +476,6 @@ private fun ViewfinderFrame(
                         ambientColor = Color(0xFFFF7A00)
                     )
                 )
-            }
-        }
-    }
-}
-
-/**
- * Expandable Film Simulation Selector
- */
-@Composable
-private fun FilmSimulationSelector(
-    activePreset: VintageFilmPreset,
-    onSelectPreset: (VintageFilmPreset) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF222326))
-            .border(1.dp, Color(0xFF383A3E))
-            .padding(vertical = 10.dp)
-    ) {
-        Text(
-            text = "SELECT 35mm FILM STOCK",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = VintageAmber,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-        )
-
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(VintageFilmPreset.values()) { preset ->
-                val isSelected = preset == activePreset
-                Column(
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) VintageSurfaceElevated else VintageBodyDark)
-                        .border(
-                            width = if (isSelected) 2.dp else 1.dp,
-                            color = if (isSelected) preset.badgeColor else VintageMetalDark,
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .clickable { onSelectPreset(preset) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = preset.title,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = if (isSelected) preset.badgeColor else VintageTextLight
-                    )
-                    Text(
-                        text = preset.subtitle,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 8.5.sp
-                        ),
-                        color = VintageTextMuted
-                    )
-                }
             }
         }
     }
