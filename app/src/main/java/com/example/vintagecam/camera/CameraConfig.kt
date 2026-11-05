@@ -154,4 +154,8 @@ data class CameraUiState(
 
     // Contextual Pro Drawer state (null = collapsed drawer)
     val activeProTab: ProControlTab? = null
-)
+) {
+    val isIsoAuto: Boolean get() = selectedIso == null
+    val isShutterAuto: Boolean get() = selectedShutterLabel == null
+    val isEvLocked: Boolean get() = !isIsoAuto || !isShutterAuto
+}

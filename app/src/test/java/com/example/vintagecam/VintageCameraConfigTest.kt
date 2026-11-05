@@ -69,4 +69,35 @@ class VintageCameraConfigTest {
         assertEquals(4, VintageFilmPreset.ILFORD_HP5.filterIndex)
         assertEquals(5, VintageFilmPreset.POINT_AND_SHOOT.filterIndex)
     }
+
+    @Test
+    fun manualExposure_locksEvCompensationCorrectly() {
+        // Default state: Auto ISO and Auto Shutter -> EV is unlocked
+        val defaultState = CameraUiState()
+        assertTrue(defaultState.isIsoAuto)
+        assertTrue(defaultState.isShutterAuto)
+        org.junit.Assert.assertFalse(defaultState.isEvLocked)
+
+        // Manual ISO set -> EV must be locked
+        val manualIsoState = defaultState.copy(selectedIso = 800)
+        org.junit.Assert.assertFalse(manualIsoState.isIsoAuto)
+        assertTrue(manualIsoState.isShutterAuto)
+        assertTrue(manualIsoState.isEvLocked)
+
+        // Manual Shutter set -> EV must be locked
+        val manualShutterState = defaultState.copy(selectedShutterLabel = "1/250")
+        assertTrue(manualShutterState.isIsoAuto)
+        org.junit.Assert.assertFalse(manualShutterState.isShutterAuto)
+        assertTrue(manualShutterState.isEvLocked)
+
+        // Both manual -> EV locked
+        val bothManualState = defaultState.copy(selectedIso = 400, selectedShutterLabel = "1/125")
+        assertTrue(bothManualState.isEvLocked)
+
+        // Both returned to auto -> EV unlocked
+        val restoredState = bothManualState.copy(selectedIso = null, selectedShutterLabel = null)
+        assertTrue(restoredState.isIsoAuto)
+        assertTrue(restoredState.isShutterAuto)
+        org.junit.Assert.assertFalse(restoredState.isEvLocked)
+    }
 }

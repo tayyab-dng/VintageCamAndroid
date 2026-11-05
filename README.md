@@ -32,23 +32,27 @@ Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCa
   - Rule-of-thirds grid overlay toggle.
   - Incandescent orange `'90s Quartz Date` stamp toggle (`'26`).
 - **Contextual Pro Telemetry Bar (`ProControlBar.kt`):** A 48.dp matte-black strip with 5 telemetry tabs (`FILM`, `ISO`, `SS`, `FOCUS`, `EV`) displaying real-time camera parameters:
-  - Tapping any tab expands a unified precision vernier dial drawer directly above the telemetry strip with smooth animated transitions.
-  - Dedicated contextual `AUTO`, `AF`, or `0.0` reset button on the left edge for instant one-touch return to automatic modes.
-  - Horizontal vernier stop selector on the right for fine manual adjustment.
-  - Tapping the active tab or the viewfinder collapses the drawer immediately to keep the screen uncluttered.
+  - **Samsung Pro-Style Draggable Tick Ruler:** Tapping any tab expands a sleek dark rounded pill container (`#1A1A1C`, `RoundedCornerShape(28.dp)`) inspired by Samsung One UI Pro Camera:
+    - **Left:** Compact `MANUAL` / `AUTO` toggle pill button (amber `AUTO` in automatic modes, dark `MANUAL` when manually set; tapping toggles back to Auto).
+    - **Center:** Smooth horizontally draggable tick-mark scale with Canvas rendering and pointer input gestures (`detectHorizontalDragGestures` + tap-to-select). Renders major and minor ticks, a fixed vertical amber/gold center indicator needle (`#FFB300`), the active value bolded in amber above the needle, and neighboring stop labels in subtle gray. Emits mechanical `dialClick()` haptic feedback on each discrete stop.
+    - **Right:** Circular `✕` close button (`28.dp`) that collapses the active drawer.
+  - **Clean Film Selector Drawer:** Dedicated horizontal pill drawer for the 6 photochemical emulsions with an integrated `✕` close button.
+  - **Intelligent EV Locking:** Automatically locks EV compensation (`isEvLocked = true`), dims the `EV` tab (`alpha = 0.35f`), and disables clicks whenever `ISO` or `SS` is taken off `AUTO`. Unlocks immediately when both are returned to `AUTO`.
 - **Machined Aluminum Shutter Deck (`BottomShutterDeck.kt`):**
   - **Recessed Gallery Thumbnail (48.dp):** Displays latest captured image with subtle rounded corners and launches Android gallery on tap.
   - **Leica Shutter Button (72.dp):** Machined concentric aluminum bezel with specular highlights, physical spring-physics haptic compression, and a signature red center dot.
   - **Camera Lens Flip Button (48.dp):** Minimalist circular dark button toggling front and rear cameras.
 
-### ⚙️ 4. Real Hardware Manual Controls (Camera2Interop)
+### ⚙️ 4. Real Hardware Manual Controls & Flash Architecture (Camera2Interop)
 - **Direct HAL Control via Camera2Interop:** Leverages `@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)` via `Camera2CameraControl` and `Camera2CameraInfo`.
 - **Dynamic Hardware Capability Discovery:**
   - Queries `CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE` and clamps discrete ISO stops (`ISO 50` to `ISO 3200`) to sensor limits.
   - Queries `CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE` and generates supported shutter stops from `1/4000s` to `1/4s` mapped to nanoseconds.
   - Queries `CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE` to detect manual focus motor capabilities.
-- **Unified CaptureRequest Options:**
-  - **Manual Exposure:** Setting ISO or Shutter switches `CONTROL_AE_MODE` to `CONTROL_AE_MODE_OFF` and applies `SENSOR_SENSITIVITY` and `SENSOR_EXPOSURE_TIME` simultaneously without clobbering.
+- **Unified CaptureRequest Options & Native Flash:**
+  - **Conflict-Free Auto Exposure:** In Auto Exposure mode (`isIsoAuto && isShutterAuto`), Camera2Interop options are cleared using `clearCaptureRequestOptions()` so CameraX has 100% native control of `AE_MODE_ON_ALWAYS_FLASH` and `AE_MODE_ON_AUTO_FLASH`.
+  - **Zero-Latency Flash Toggle:** Updating the top-bar flash button dynamically updates `imageCapture.flashMode` without stream unbinding or screen flickering.
+  - **Manual Flash Torch Assist:** When Flash is `ON` under manual exposure (`CONTROL_AE_MODE_OFF`), automatically engages physical LED torch illumination during capture to guarantee flash lighting across all camera HALs.
   - **Manual Focus:** Adjusting the focus dial switches `CONTROL_AF_MODE` to `CONTROL_AF_MODE_OFF` and sets `LENS_FOCUS_DISTANCE` from `0.0f` (Infinity ∞) to macro limit.
   - **Auto Exposure & EV Compensation:** When in Auto AE mode, supports exposure compensation from -2.0 EV to +2.0 EV in 1/3-stop steps.
   - **Viewfinder Tap-to-Focus:** Tapping anywhere on the viewfinder triggers CameraX 3A tap-to-focus and metering, and automatically restores auto-focus mode if previously locked in manual focus.
@@ -74,6 +78,11 @@ Inspired by 35mm mechanical rangefinders and point-and-shoot compacts, VintageCa
 - **Opaque Sampler Scoping:** Samplers are bound globally with explicit `glUniform1i(uTextureLoc, 0)` texture unit mapping, avoiding driver-level function parameter rejections.
 - **Android 14+ Lifecycle & Looper Synchronization:** `SurfaceTexture` frame listener explicitly dispatches to `Looper.getMainLooper()` to guarantee reliable frame pumping across 120Hz/240Hz camera HALs.
 - **Hardware Layering:** `setZOrderMediaOverlay(true)` enables clean punch-through rendering without occlusion from Compose RenderNodes.
+
+### 🎨 8. Vintage Camera Adaptive App Icon
+- **Matte Charcoal Background (`ic_launcher_background.xml`):** Radial vignette gradient (`#222328` to `#0D0D0F`) with subtle concentric rangefinder calibration rings and technical crosshair grid.
+- **High-Craft 35mm Rangefinder Foreground (`ic_launcher_foreground.xml`):** Vector illustration featuring brushed titanium top plate with beveled highlight, rangefinder optical glass window, red Leica shutter release accent, concentric brushed silver lens barrel, multi-coated deep optical glass, and an incandescent amber/red photochemical halation reflection dot.
+- Configured across standard and round adaptive mipmap targets (`ic_launcher.xml` and `ic_launcher_round.xml`) for Android 8.0 through Android 15+.
 
 ---
 

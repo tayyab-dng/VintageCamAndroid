@@ -263,7 +263,11 @@ fun VintageCameraScreen() {
                 state = state,
                 onTabSelected = { tab ->
                     hapticManager.dialClick()
-                    state = state.copy(activeProTab = if (state.activeProTab == tab) null else tab)
+                    if (tab == ProControlTab.EV && state.isEvLocked) {
+                        // Ignore EV selection when locked
+                    } else {
+                        state = state.copy(activeProTab = if (state.activeProTab == tab) null else tab)
+                    }
                 },
                 onFilmPresetSelected = { preset ->
                     hapticManager.ratchetTick()
@@ -272,24 +276,43 @@ fun VintageCameraScreen() {
                 onIsoSelected = { iso ->
                     hapticManager.dialClick()
                     if (iso == null) {
-                        controller.setAutoExposure(true)
-                        state = state.copy(isAutoExposure = true, selectedIso = null)
+                        controller.setManualIso(null)
+                        val isStillManual = state.selectedShutterLabel != null
+                        state = state.copy(
+                            selectedIso = null,
+                            isAutoExposure = !isStillManual
+                        )
                     } else {
+                        controller.setExposureCompensation(0)
                         controller.setManualIso(iso)
-                        state = state.copy(isAutoExposure = false, selectedIso = iso)
+                        state = state.copy(
+                            selectedIso = iso,
+                            isAutoExposure = false,
+                            evIndex = 0,
+                            evValue = 0f,
+                            activeProTab = if (state.activeProTab == ProControlTab.EV) null else state.activeProTab
+                        )
                     }
                 },
                 onShutterSpeedSelected = { label, nanos ->
                     hapticManager.dialClick()
                     if (label == null) {
-                        controller.setAutoExposure(true)
-                        state = state.copy(isAutoExposure = true, selectedShutterLabel = null)
+                        controller.setManualShutterSpeed(null)
+                        val isStillManual = state.selectedIso != null
+                        state = state.copy(
+                            selectedShutterLabel = null,
+                            isAutoExposure = !isStillManual
+                        )
                     } else {
+                        controller.setExposureCompensation(0)
                         controller.setManualShutterSpeed(nanos)
                         state = state.copy(
-                            isAutoExposure = false,
                             selectedShutterLabel = label,
-                            selectedShutterNanos = nanos
+                            selectedShutterNanos = nanos,
+                            isAutoExposure = false,
+                            evIndex = 0,
+                            evValue = 0f,
+                            activeProTab = if (state.activeProTab == ProControlTab.EV) null else state.activeProTab
                         )
                     }
                 },
@@ -304,9 +327,15 @@ fun VintageCameraScreen() {
                     state = state.copy(isAutoFocus = false, manualFocusDistance = diopters)
                 },
                 onEvChanged = { evVal, evIdx ->
-                    hapticManager.ratchetTick()
-                    controller.setExposureCompensation(evIdx)
-                    state = state.copy(evValue = evVal, evIndex = evIdx)
+                    if (!state.isEvLocked) {
+                        hapticManager.ratchetTick()
+                        controller.setExposureCompensation(evIdx)
+                        state = state.copy(evValue = evVal, evIndex = evIdx)
+                    }
+                },
+                onCloseDrawer = {
+                    hapticManager.dialClick()
+                    state = state.copy(activeProTab = null)
                 }
             )
 
@@ -335,6 +364,7 @@ fun VintageCameraScreen() {
                             isDateStampEnabled = state.isDateStampEnabled,
                             dateStampText = quartzDateString,
                             isMirroring = (state.lensFacing == CameraSelector.LENS_FACING_FRONT),
+                            flashMode = state.flashMode,
                             onSuccess = { uri, thumbnail ->
                                 val nextCounter = if (state.frameCounter < state.maxFrames) state.frameCounter + 1 else 1
                                 state = state.copy(

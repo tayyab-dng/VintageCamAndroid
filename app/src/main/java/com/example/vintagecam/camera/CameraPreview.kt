@@ -88,31 +88,50 @@ class VintageCameraController internal constructor() {
     internal var onCaptureSuccess: ((File) -> Unit)? = null
     internal var onCaptureError: ((Exception) -> Unit)? = null
 
-    var isAutoExposure: Boolean = true
+    var selectedIso: Int? = null // null = Auto
         private set
-    var selectedIso: Int = 400
+    var selectedExposureNanos: Long? = null // null = Auto
         private set
-    var selectedExposureNanos: Long = 8_000_000L // 1/125s
-        private set
+    val isIsoAuto: Boolean get() = selectedIso == null
+    val isShutterAuto: Boolean get() = selectedExposureNanos == null
+    val isAutoExposure: Boolean get() = isIsoAuto && isShutterAuto
+    val isEvLocked: Boolean get() = !isIsoAuto || !isShutterAuto
+
     var isAutoFocus: Boolean = true
         private set
     var focusDistanceDiopters: Float = 0.0f
         private set
 
+    var currentFlashMode: VintageFlashMode = VintageFlashMode.AUTO
+        private set
+
+    fun setFlashMode(mode: VintageFlashMode) {
+        currentFlashMode = mode
+        imageCapture?.flashMode = mode.imageCaptureFlashMode
+        Log.d(TAG, "Synchronized ImageCapture flashMode to ${mode.name} (${mode.imageCaptureFlashMode})")
+    }
+
     fun setAutoExposure(isAuto: Boolean) {
-        isAutoExposure = isAuto
+        if (isAuto) {
+            selectedIso = null
+            selectedExposureNanos = null
+        }
         applyHardwareCaptureSettings()
     }
 
-    fun setManualIso(iso: Int) {
+    fun setManualIso(iso: Int?) {
         selectedIso = iso
-        isAutoExposure = false
+        if (iso != null) {
+            setExposureCompensation(0)
+        }
         applyHardwareCaptureSettings()
     }
 
-    fun setManualShutterSpeed(nanos: Long) {
+    fun setManualShutterSpeed(nanos: Long?) {
         selectedExposureNanos = nanos
-        isAutoExposure = false
+        if (nanos != null) {
+            setExposureCompensation(0)
+        }
         applyHardwareCaptureSettings()
     }
 
@@ -127,36 +146,62 @@ class VintageCameraController internal constructor() {
         applyHardwareCaptureSettings()
     }
 
+    fun setExposureCompensation(index: Int) {
+        if (isEvLocked && index != 0) {
+            Log.w(TAG, "EV compensation locked while manual exposure (ISO/SS) is active")
+            return
+        }
+        cameraControl?.setExposureCompensationIndex(index)
+    }
+
     internal fun reapplyHardwareCaptureSettings() {
         applyHardwareCaptureSettings()
     }
 
     private fun applyHardwareCaptureSettings() {
         val c2Control = camera2Control ?: return
-        val builder = CaptureRequestOptions.Builder()
 
-        // 1. Exposure Mode: Auto (ON) vs Manual (OFF with explicit SENSITIVITY & EXPOSURE_TIME)
+        // When in Auto Exposure mode (isIsoAuto && isShutterAuto), clear Camera2Interop AE options
+        // completely so CameraX has 100% native control of AE_MODE_ON_ALWAYS_FLASH and AE_MODE_ON_AUTO_FLASH!
         if (isAutoExposure) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+            if (isAutoFocus) {
+                try {
+                    c2Control.clearCaptureRequestOptions()
+                    Log.d(TAG, "Cleared Camera2Interop options: Native CameraX 3A (AE, Flash, AF) active")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to clearCaptureRequestOptions", e)
+                }
+            } else {
+                val builder = CaptureRequestOptions.Builder()
+                builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                builder.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistanceDiopters)
+                try {
+                    c2Control.setCaptureRequestOptions(builder.build())
+                    Log.d(TAG, "Applied manual focus with native CameraX AE: Focus=$focusDistanceDiopters diopters")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to apply AF options", e)
+                }
+            }
         } else {
+            // Manual Exposure: CONTROL_AE_MODE_OFF with explicit SENSITIVITY and EXPOSURE_TIME
+            val builder = CaptureRequestOptions.Builder()
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
-            builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, selectedIso)
-            builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, selectedExposureNanos)
-        }
+            builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, selectedIso ?: 400)
+            builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, selectedExposureNanos ?: 8_000_000L)
 
-        // 2. Focus Mode: Auto (CONTINUOUS_PICTURE) vs Manual (OFF with explicit LENS_FOCUS_DISTANCE)
-        if (isAutoFocus) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-        } else {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
-            builder.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistanceDiopters)
-        }
+            if (isAutoFocus) {
+                builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            } else {
+                builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                builder.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistanceDiopters)
+            }
 
-        try {
-            c2Control.setCaptureRequestOptions(builder.build())
-            Log.d(TAG, "Applied hardware capture options: AE=$isAutoExposure (ISO=$selectedIso, SS=$selectedExposureNanos ns), AF=$isAutoFocus (Focus=$focusDistanceDiopters diopters)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply CaptureRequestOptions", e)
+            try {
+                c2Control.setCaptureRequestOptions(builder.build())
+                Log.d(TAG, "Applied manual hardware capture options: ISO=$selectedIso, SS=$selectedExposureNanos ns, AF=$isAutoFocus")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to apply CaptureRequestOptions", e)
+            }
         }
     }
 
@@ -208,6 +253,7 @@ class VintageCameraController internal constructor() {
         isDateStampEnabled: Boolean,
         dateStampText: String,
         isMirroring: Boolean,
+        flashMode: VintageFlashMode = currentFlashMode,
         onSuccess: (Uri, Bitmap) -> Unit,
         onError: (Exception) -> Unit
     ) {
@@ -217,11 +263,36 @@ class VintageCameraController internal constructor() {
             return
         }
 
+        // Guarantee imageCapture has the current flashMode
+        capture.flashMode = flashMode.imageCaptureFlashMode
+
+        // For manual exposure modes where CONTROL_AE_MODE_OFF disables standard CameraX AE flash,
+        // or when flash is forced ON, provide torch assist before capture
+        val needTorchAssist = (flashMode == VintageFlashMode.ON && !isAutoExposure)
+        if (needTorchAssist) {
+            try {
+                cameraControl?.enableTorch(true)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to enable torch assist for manual flash capture", e)
+            }
+        }
+
+        val cleanupTorch = {
+            if (needTorchAssist) {
+                try {
+                    cameraControl?.enableTorch(false)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to disable torch assist", e)
+                }
+            }
+        }
+
         onCaptureStarted?.invoke()
 
         capturePhoto(
             executor = ContextCompat.getMainExecutor(context),
             onImageCaptured = { imageProxy ->
+                cleanupTorch()
                 coroutineScope.launch(Dispatchers.Default) {
                     try {
                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
@@ -306,15 +377,40 @@ class VintageCameraController internal constructor() {
                 }
             },
             onError = { ex ->
+                cleanupTorch()
                 onError(ex)
             }
         )
     }
 
-    fun takePhoto(context: Context, outputDirectory: File) {
+    fun takePhoto(
+        context: Context,
+        outputDirectory: File,
+        flashMode: VintageFlashMode = currentFlashMode
+    ) {
         val capture = imageCapture ?: run {
             Log.e(TAG, "ImageCapture not initialized yet")
             return
+        }
+
+        capture.flashMode = flashMode.imageCaptureFlashMode
+        val needTorchAssist = (flashMode == VintageFlashMode.ON && !isAutoExposure)
+        if (needTorchAssist) {
+            try {
+                cameraControl?.enableTorch(true)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to enable torch assist for manual flash capture", e)
+            }
+        }
+
+        val cleanupTorch = {
+            if (needTorchAssist) {
+                try {
+                    cameraControl?.enableTorch(false)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to disable torch assist", e)
+                }
+            }
         }
 
         onCaptureStarted?.invoke()
@@ -335,11 +431,13 @@ class VintageCameraController internal constructor() {
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    cleanupTorch()
                     Log.d(TAG, "Photo saved successfully: ${photoFile.absolutePath}")
                     onCaptureSuccess?.invoke(photoFile)
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    cleanupTorch()
                     Log.e(TAG, "Photo capture failed: ${exception.message}", exception)
                     onCaptureError?.invoke(exception)
                 }
@@ -349,10 +447,6 @@ class VintageCameraController internal constructor() {
 
     fun setZoomRatio(ratio: Float) {
         cameraControl?.setZoomRatio(ratio)
-    }
-
-    fun setExposureCompensation(index: Int) {
-        cameraControl?.setExposureCompensationIndex(index)
     }
 }
 
@@ -445,8 +539,13 @@ fun CameraPreview(
         )
     }
 
-    // Rebind CameraX whenever lifecycle, lensFacing, or flashMode change (aspect ratio switches are handled seamlessly in GPU viewport)
-    LaunchedEffect(cameraProvider, lifecycleOwner, lensFacing, flashMode) {
+    // Dynamically synchronize flash mode without rebinding the camera stream
+    LaunchedEffect(flashMode) {
+        controller.setFlashMode(flashMode)
+    }
+
+    // Rebind CameraX whenever lifecycle or lensFacing change (aspect ratio and flash switches are handled dynamically without rebinding)
+    LaunchedEffect(cameraProvider, lifecycleOwner, lensFacing) {
         val provider = cameraProvider ?: return@LaunchedEffect
 
         try {
@@ -498,6 +597,7 @@ fun CameraPreview(
             activeCamera = camera
             controller.imageCapture = imageCapture
             controller.cameraControl = camera.cameraControl
+            controller.setFlashMode(flashMode)
 
             // Initialize Camera2Interop hardware controls
             val camera2Control = Camera2CameraControl.from(camera.cameraControl)
